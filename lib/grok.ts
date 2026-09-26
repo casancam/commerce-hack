@@ -145,15 +145,18 @@ export async function rankCompetitorAds(productImageUrl: string, garment: string
   return { verdicts, angles };
 }
 
-export async function grokChat(system: string, user: string) {
+export const FAST_MODEL = "grok-4.20-0309-non-reasoning";
+
+export async function grokChat(system: string, user: string, model = process.env.GROK_MODEL || "grok-4.6") {
   const response = await fetch(`${API}/chat/completions`, {
     method: "POST",
+    signal: AbortSignal.timeout(50_000),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey()}`,
     },
     body: JSON.stringify({
-      model: process.env.GROK_MODEL || "grok-4.6",
+      model,
       temperature: 0.4,
       messages: [
         { role: "system", content: system },

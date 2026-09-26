@@ -44,7 +44,7 @@ async function serp<T>(params: Record<string, string>) {
   const url = new URL("https://serpapi.com/search.json");
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
   url.searchParams.set("api_key", key);
-  const response = await fetch(url, { signal: AbortSignal.timeout(25000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
   const json = (await response.json()) as T & { error?: string };
   if (!response.ok || json.error) throw new Error(json.error || "SerpApi request failed");
   return json;
@@ -52,8 +52,7 @@ async function serp<T>(params: Record<string, string>) {
 
 function visualImage(url: string | undefined) {
   if (!url) return null;
-  if (url.includes("/archive/simgad/")) return null;
-  if (/gstatic\.com\/shopping|sadbundle|ggpht\.com|ytimg\.com/i.test(url)) return url;
+  if (/simgad\/|gstatic\.com\/shopping|sadbundle|ggpht\.com|ytimg\.com/i.test(url)) return url;
   return null;
 }
 
@@ -79,7 +78,7 @@ async function imageAds(domain: string) {
     creative_format: "image",
     num: "20",
   }).catch(() => ({ ad_creatives: [] as ListedCreative[] }));
-  const rows = (listed.ad_creatives ?? []).filter((row) => row.advertiser_id && row.ad_creative_id).slice(0, 8);
+  const rows = (listed.ad_creatives ?? []).filter((row) => row.advertiser_id && row.ad_creative_id).slice(0, 4);
   const ads = await Promise.all(
     rows.map(async (row): Promise<CompetitorAd | null> => {
       const details = await serp<{ ad_creatives?: DetailedCreative[] }>({
@@ -130,7 +129,7 @@ export async function serpApiCompetitorAds(garment: string, pageUrls: string[] =
   if (!serpApiConfigured()) return { ads: [] as CompetitorAd[], warning: null as string | null };
 
   try {
-    const domains = [...new Set([...(await sellerDomains(garment)), ...domainsFrom(pageUrls)])].slice(0, 4);
+    const domains = [...new Set([...(await sellerDomains(garment)), ...domainsFrom(pageUrls)])].slice(0, 3);
     const found = (await Promise.all(domains.map(imageAds))).flat();
     const seen = new Set<string>();
     const unique = found.filter((ad) => ad.imageUrl && !seen.has(ad.imageUrl) && seen.add(ad.imageUrl));

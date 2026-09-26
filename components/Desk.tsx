@@ -60,7 +60,7 @@ export function Desk({
 
   async function runBrief() {
     setPending("brief");
-    setProgress({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: 7 });
+    setProgress({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: 3 });
     setNotice(null);
     try {
       const response = await fetch("/api/decide", { method: "POST" });
@@ -200,38 +200,6 @@ export function Desk({
     });
   }
 
-  async function publishMeta() {
-    const cents = Math.round(Number(budgetDraft.meta) * 100);
-    const dailyBudgetCents = Number.isFinite(cents) && cents > 0 ? cents : meta.dailyBudgetCents;
-    setPending("meta");
-    setLiveNote(null);
-    try {
-      const response = await fetch("/api/meta", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: meta.name,
-          headline: meta.headline,
-          primaryText: meta.primaryText,
-          imageUrl: previewImage,
-          destinationUrl: meta.destinationUrl,
-          dailyBudgetCents,
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        setLiveNote(body?.error ?? "Meta did not create the campaign.");
-        return;
-      }
-      setLiveNote(body.message ?? "Campaign created in Ads Manager.");
-      if (body.url) window.open(body.url, "_blank", "noopener,noreferrer");
-    } catch {
-      setLiveNote("Meta did not create the campaign.");
-    } finally {
-      setPending(null);
-    }
-  }
-
   async function savePlatformBudget(platform: "meta" | "tiktok") {
     const cents = Math.round(Number(budgetDraft[platform]) * 100);
     if (!Number.isFinite(cents) || cents <= 0) return;
@@ -283,14 +251,6 @@ export function Desk({
           >
             {pending === "brief" ? "Running…" : "Run brief ✺"}
           </button>
-          {brief.timings ? (
-            <p className="flex flex-wrap gap-1.5 font-mono text-[11px] text-muted">
-              <span className="chip py-0.5">Research {seconds(brief.timings.researchMs)}</span>
-              <span className="chip py-0.5">Analysis {seconds(brief.timings.analysisMs)}</span>
-              <span className="chip py-0.5">Images {seconds(brief.timings.imagesMs)}</span>
-              <span className="chip bg-ink py-0.5 text-accent">Total {seconds(brief.timings.totalMs)}</span>
-            </p>
-          ) : null}
         </div>
       </header>
       {notice ? (
@@ -570,14 +530,14 @@ export function Desk({
                   </label>
                 </div>
                 {campaign.platform === "meta" && metaAdsUrl ? (
-                  <button
-                    type="button"
-                    onClick={() => void publishMeta()}
-                    disabled={pending !== null}
+                  <a
+                    href={metaAdsUrl}
+                    target="_blank"
+                    rel="noreferrer"
                     className="studio-btn studio-btn-primary w-full py-3 text-base"
                   >
-                    {pending === "meta" ? "Creating…" : "Go live ↗"}
-                  </button>
+                    Open Meta ↗
+                  </a>
                 ) : (
                   <button
                     type="button"
@@ -611,11 +571,8 @@ function SectionHead({ index, title, accent }: { index: string; title: string; a
 
 const LOADING_STEPS: { id: BriefUpdate["stage"]; label: string }[] = [
   { id: "stock", label: "Stock" },
-  { id: "photo", label: "Photo" },
   { id: "ads", label: "Search" },
-  { id: "rank", label: "Pick" },
   { id: "copy", label: "Copy" },
-  { id: "image", label: "Stills" },
 ];
 
 function BriefLoading({ progress }: { progress: BriefUpdate }) {
@@ -747,10 +704,6 @@ function Photo({ src, alt }: { src: string; alt: string }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img src={src} alt={alt} onError={() => setFailed(true)} className="h-auto w-full object-contain" />
   );
-}
-
-function seconds(ms: number) {
-  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone: string }) {

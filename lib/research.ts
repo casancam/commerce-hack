@@ -39,6 +39,7 @@ export async function researchOpportunity(
   title: string,
   imageUrl?: string,
   onProgress?: (stage: "photo" | "ads" | "rank") => void,
+  options?: { quick?: boolean },
 ) {
   if (!tavilyConfigured()) {
     return {
@@ -58,7 +59,7 @@ export async function researchOpportunity(
   const looseImages: string[] = [];
 
   let garment = title;
-  if (imageUrl && grokConfigured()) {
+  if (!options?.quick && imageUrl && grokConfigured()) {
     onProgress?.("photo");
     try {
       garment = (await garmentFromPhoto(imageUrl, title)).garment || title;
@@ -99,13 +100,23 @@ export async function researchOpportunity(
   const priced = hits.filter((hit) => hit.kind === "price");
   const names = brandNames(priced.map((hit) => hit.title));
   const pageUrls = priced.map((hit) => hit.url);
-  const found = await findCompetitorAds({
-    garment,
-    productImageUrl: imageUrl,
-    pageUrls,
-    brands: names.length > 0 ? names : [title],
-    onProgress,
-  });
+  const found = await within(
+    findCompetitorAds({
+      garment,
+      productImageUrl: imageUrl,
+      pageUrls,
+      brands: names.length > 0 ? names : [title],
+      onProgress,
+      rank: !options?.quick,
+    }),
+    options?.quick ? 18_000 : 45_000,
+    {
+      competitorAds: [] as CompetitorAd[],
+      angles: [] as string[],
+      ranked: false,
+      problems: [] as string[],
+    },
+  );
   problems.push(...found.problems);
   const { competitorAds, angles } = found;
   if (!serpApiConfigured() && competitorAds.every((ad) => !ad.imageUrl)) {
@@ -135,22 +146,24 @@ export async function findCompetitorAds({
   pageUrls = [],
   brands = [],
   onProgress,
+  rank = true,
 }: {
   garment: string;
   productImageUrl?: string;
   pageUrls?: string[];
   brands?: string[];
   onProgress?: (stage: "rank") => void;
+  rank?: boolean;
 }) {
   const problems: string[] = [];
   const [serp, meta] = await Promise.all([serpApiCompetitorAds(garment, pageUrls), metaLibraryAds(garment)]);
   if (serp.warning) problems.push(serp.warning);
   if (meta.warning) console.error(meta.warning);
   const direct = serp.ads.length + meta.ads.length >= 3 ? [] : await publicCompetitorAds(brands, pageUrls);
-  const candidates = dedupeAds([...meta.ads, ...serp.ads, ...direct], 10);
+  const candidates = dedupeAds([...meta.ads, ...serp.ads, ...direct], 12);
 
-  if (!productImageUrl || !grokConfigured() || candidates.length === 0) {
-    return { competitorAds: candidates.slice(0, 4), angles: [] as string[], ranked: false, problems };
+  if (!rank || !productImageUrl || !grokConfigured() || candidates.length === 0) {
+    return { competitorAds: candidates.slice(0, 8), angles: [] as string[], ranked: false, problems };
   }
 
   try {
@@ -163,7 +176,7 @@ export async function findCompetitorAds({
     const competitorAds = verdicts
       .filter((verdict) => verdict.match)
       .sort((a, b) => b.score - a.score)
-      .slice(0, 4)
+      .slice(0, 8)
       .map((verdict) => {
         const ad = candidates[verdict.index];
         return verdict.hook ? { ...ad, hook: verdict.hook } : ad;
@@ -171,19 +184,40 @@ export async function findCompetitorAds({
     return { competitorAds, angles: competitorAds.length > 0 ? angles : [], ranked: true, problems };
   } catch (error) {
     problems.push(error instanceof Error ? error.message : "Grok could not rank the competitor ads");
-    return { competitorAds: candidates.slice(0, 4), angles: [] as string[], ranked: false, problems };
+    return { competitorAds: candidates.slice(0, 8), angles: [] as string[], ranked: false, problems };
   }
+}
+
+function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 function dedupeAds(ads: CompetitorAd[], limit: number) {
   const seen = new Set<string>();
+  const perBrand = new Map<string, number>();
   const unique: CompetitorAd[] = [];
+  const overflow: CompetitorAd[] = [];
   for (const ad of ads) {
     const key = ad.imageUrl || ad.url;
     if (seen.has(key)) continue;
     seen.add(key);
+    const brand = ad.title.toLowerCase();
+    const count = perBrand.get(brand) ?? 0;
+    if (count >= 2) {
+      overflow.push(ad);
+      continue;
+    }
+    perBrand.set(brand, count + 1);
     unique.push(ad);
+    if (unique.length >= limit) return unique;
+  }
+  for (const ad of overflow) {
     if (unique.length >= limit) break;
+    unique.push(ad);
   }
   return unique;
 }

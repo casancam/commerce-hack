@@ -1,5 +1,5 @@
 import { applyResearch, buildPreview, carryBudgets, gbpFacts, stageCampaigns, suggestionMessage } from "@/lib/decide";
-import { grokAdImage, grokChat, grokConfigured, parseGrokJson } from "@/lib/grok";
+import { FAST_MODEL, grokChat, grokConfigured, parseGrokJson } from "@/lib/grok";
 import { loadCatalog, type Catalog } from "@/lib/live-catalog";
 import { suggestCampaignPrice } from "@/lib/pricing";
 import { adEvidence, competitorNote, competitorPrices, researchOpportunity, type ResearchHit } from "@/lib/research";
@@ -97,6 +97,7 @@ async function pickWithGrok(catalog: Catalog, rules: Record<string, ProductRule>
         description: catalog.shopDescription,
         catalog: gbpFacts(catalog.products, rules),
       }),
+      FAST_MODEL,
     ),
   );
   const brief = buildPreview(catalog, parsed.chosenId, rules);
@@ -107,34 +108,6 @@ async function pickWithGrok(catalog: Catalog, rules: Record<string, ProductRule>
     why: reasons.get(item.id) ?? item.why,
   }));
   return brief;
-}
-
-async function editVariants(
-  drafts: ReturnType<typeof draftVariants>,
-  stock: string,
-  onImage?: (index: number, total: number, label: string) => void,
-): Promise<{ variants: AdVariant[]; imagesMs: number }> {
-  const started = Date.now();
-  const variants: AdVariant[] = [];
-  for (const [index, draft] of drafts.entries()) {
-    onImage?.(index, drafts.length, draft.label);
-    let imageUrl = stock;
-    try {
-      imageUrl = await grokAdImage(draft.imagePrompt, stock);
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : error);
-    }
-    variants.push({
-      id: slug(draft.label, index),
-      label: draft.label,
-      imageUrl,
-      why: draft.why,
-      sourceTitle: draft.sourceTitle,
-      sourceUrl: draft.sourceUrl,
-      prompt: draft.imagePrompt,
-    });
-  }
-  return { variants, imagesMs: Date.now() - started };
 }
 
 async function creativeWithGrok(
@@ -160,7 +133,7 @@ async function creativeWithGrok(
     "telegram is the short daily message and starts with Haggly.",
   ].join(" ");
   const copyStarted = Date.now();
-  onProgress?.({ stage: "copy", detail: "Writing the headline and the two scenes", step: 5, total: BRIEF_STEPS });
+  onProgress?.({ stage: "copy", detail: "Writing the headline and the two scenes", step: 3, total: BRIEF_STEPS });
   const parsed = parseGrokJson<GrokCreative>(
     await grokChat(
       system,
@@ -180,6 +153,7 @@ async function creativeWithGrok(
         ads: adEvidence(hits),
         angles,
       }),
+      FAST_MODEL,
     ),
   );
   const copyMs = Date.now() - copyStarted;
@@ -188,17 +162,17 @@ async function creativeWithGrok(
   const primaryText = clip(parsed.primaryText, 280, brief.chosen.primaryText);
   const drafts = draftVariants(parsed, hits, brief.chosen.title);
   const stock = product ? stockReference(product) : brief.chosen.imageUrl;
-  const edited = await editVariants(drafts, stock, (index, total, label) => {
-    onProgress?.({
-      stage: "image",
-      detail: `Editing still ${index + 1} of ${total}: ${label}. Each still usually takes about a minute.`,
-      step: 6 + index,
-      total: BRIEF_STEPS,
-    });
-  });
-  const variants = edited.variants;
-  const selected = variants.find((variant) => !variant.imageUrl.startsWith("/products/")) ?? variants[0];
-  const generatedImage = variants.some((variant) => variant.imageUrl.startsWith("http"));
+  const variants: AdVariant[] = drafts.map((draft, index) => ({
+    id: slug(draft.label, index),
+    label: draft.label,
+    imageUrl: stock,
+    why: draft.why,
+    sourceTitle: draft.sourceTitle,
+    sourceUrl: draft.sourceUrl,
+    prompt: draft.imagePrompt,
+  }));
+  const selected = variants[0];
+  const generatedImage = false;
 
   const chosenProduct: Product = product ?? {
     id: brief.chosen.id,
@@ -247,7 +221,7 @@ async function creativeWithGrok(
     ),
   } satisfies Brief,
     copyMs,
-    imagesMs: edited.imagesMs,
+    imagesMs: 0,
   };
 }
 
@@ -260,7 +234,7 @@ export type BriefUpdate = {
   total: number;
 };
 
-const BRIEF_STEPS = 7;
+const BRIEF_STEPS = 3;
 
 export async function runBrief(onProgress?: (update: BriefUpdate) => void) {
   const totalStarted = Date.now();
@@ -290,17 +264,16 @@ export async function runBrief(onProgress?: (update: BriefUpdate) => void) {
   }
 
   const researchStarted = Date.now();
-  const research = await researchOpportunity(preview.chosen.title, preview.chosen.imageUrl, (stage) => {
-    if (stage === "photo") {
-      onProgress?.({ stage, detail: `Reading the photo of ${preview.chosen.title}`, step: 2, total: BRIEF_STEPS });
-    }
-    if (stage === "ads") {
-      onProgress?.({ stage, detail: "Looking up prices and competitor ads", step: 3, total: BRIEF_STEPS });
-    }
-    if (stage === "rank") {
-      onProgress?.({ stage, detail: "Comparing those ads with your product", step: 4, total: BRIEF_STEPS });
-    }
-  });
+  const research = await researchOpportunity(
+    preview.chosen.title,
+    preview.chosen.imageUrl,
+    (stage) => {
+      if (stage === "ads") {
+        onProgress?.({ stage, detail: "Looking up prices and competitor ads", step: 2, total: BRIEF_STEPS });
+      }
+    },
+    { quick: true },
+  );
   const researchMs = Date.now() - researchStarted;
   if (research.warning) warnings.push(research.warning);
   const priceNote = competitorNote(research.hits, preview.chosen.priceCents, preview.chosen.costCents);
@@ -357,10 +330,6 @@ export async function runBrief(onProgress?: (update: BriefUpdate) => void) {
     imagesMs,
     totalMs: Date.now() - totalStarted,
   };
-
-  if (brief.grok && !brief.generatedImage) {
-    warnings.push("The product was chosen. The ad stills could not be edited, so both variants use the stock photo.");
-  }
 
   if (rule) {
     try {

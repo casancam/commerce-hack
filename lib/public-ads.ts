@@ -86,7 +86,7 @@ function domainsFrom(urls: string[]) {
 
 function take(ads: CompetitorAd[], seen: Set<string>, incoming: CompetitorAd[]) {
   for (const ad of incoming) {
-    if (!ad.imageUrl || seen.has(ad.imageUrl) || ads.length >= 4) continue;
+    if (!ad.imageUrl || seen.has(ad.imageUrl) || ads.length >= 8) continue;
     seen.add(ad.imageUrl);
     ads.push(ad);
   }
@@ -112,7 +112,7 @@ export async function publicCompetitorAds(brands: string[], pageUrls: string[] =
   const seen = new Set<string>();
 
   for (const domain of domainsFrom(pageUrls)) {
-    if (ads.length >= 4) break;
+    if (ads.length >= 8) break;
     try {
       const body = await rpcOnce("SearchService/SearchCreatives", {
         2: 8,
@@ -126,10 +126,10 @@ export async function publicCompetitorAds(brands: string[], pageUrls: string[] =
     }
   }
 
-  if (ads.length >= 2) return ads;
+  if (ads.length >= 8) return ads;
 
   for (const brand of brands) {
-    if (ads.length >= 4) break;
+    if (ads.length >= 8) break;
     try {
       const suggestions = advertisers(await rpcOnce("SearchService/SearchSuggestions", { 1: brand, 2: 8, 3: 8 }));
       const advertiser = pickAdvertiser(suggestions, brand);
