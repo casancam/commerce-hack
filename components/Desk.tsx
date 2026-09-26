@@ -131,7 +131,7 @@ export function Desk({
         const trimmed = line.trim();
         if (!trimmed) return;
         const event = JSON.parse(trimmed) as Omit<BriefUpdate, "stage"> & {
-          stage?: BriefUpdate["stage"] | "done" | "error";
+          stage?: BriefUpdate["stage"] | "done" | "error" | "reply";
           brief?: Brief;
           warning?: string | null;
           slack?: { sent?: boolean; reason?: string };
@@ -144,7 +144,7 @@ export function Desk({
           setNotice(event.reply);
           return;
         }
-        if (event.detail && event.step && event.stage && event.stage !== "done" && event.stage !== "error") {
+        if (event.detail && event.step && event.stage && event.stage !== "done" && event.stage !== "error" && event.stage !== "reply") {
           setProgress({ stage: event.stage, detail: event.detail, step: event.step, total: event.total || 7 });
         }
         if (event.stage === "error") setNotice(event.error ?? "Could not run today's brief.");
