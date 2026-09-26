@@ -31,11 +31,11 @@ export async function wakeGrokBot(brief: Brief, message?: string): Promise<SendR
       })),
       replyUrl: appUrl ? `${appUrl}/api/grokbot` : null,
       task: [
-        "Post message to Slack verbatim, then post each image.",
+        "Haggly already posted message to Slack. Do not post it again.",
         "Do not change the price, product, or variant text.",
         appUrl
-          ? `A typed Slack reply is handled by Haggly. A voice note is transcribed first. If you receive a voice reply, POST {"text":"the instruction"} to ${appUrl}/api/grokbot with the same webhook key, then post the returned reply and imageUrls in the thread.`
-          : "Reply in the Slack thread.",
+          ? `When a reply arrives in that thread, transcribe a voice note if needed. POST {"text":"the instruction"} to ${appUrl}/api/grokbot with the same webhook key, then post the returned reply and imageUrls in the thread.`
+          : "When a reply arrives in that thread, answer it there.",
       ].join(" "),
     }),
     signal: AbortSignal.timeout(8000),
