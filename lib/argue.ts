@@ -95,7 +95,7 @@ export async function answerMerchant(message: string, productId?: string, intent
       .map((item) => item.product.id)
       .join(", ")}.`,
     "If you switch, the first line must be SWITCH <id>. Otherwise the first line must be KEEP.",
-    "Then write a short reply the merchant will read on Telegram.",
+    "Then write a short reply the merchant will read.",
     "Do not invent prices or stock. Do not agree to break the floor.",
   ].join(" ");
   const user = JSON.stringify({

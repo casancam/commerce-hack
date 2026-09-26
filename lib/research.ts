@@ -3,7 +3,7 @@ import { sameProduct } from "@/lib/product-match";
 import { metaLibraryAds } from "@/lib/meta";
 import { extractGbpCents, plausibleCompetitorCents } from "@/lib/pricing";
 import { publicCompetitorAds } from "@/lib/public-ads";
-import { serpApiCompetitorAds, serpApiConfigured } from "@/lib/serpapi";
+import { serpApiCompetitorAds, serpApiConfigured, shoppingCompetitorAds } from "@/lib/serpapi";
 import { tavilyConfigured, tavilySearch, type TavilyHit } from "@/lib/tavily";
 import type { CompetitorAd, ResearchLink } from "@/lib/types";
 
@@ -146,15 +146,22 @@ export async function findCompetitorAds({
   allowPublic?: boolean;
 }) {
   const problems: string[] = [];
-  const [serp, meta] = await Promise.all([serpApiCompetitorAds(garment, pageUrls), metaLibraryAds(garment)]);
+  const [shopping, serp, meta] = await Promise.all([
+    shoppingCompetitorAds(garment),
+    serpApiCompetitorAds(garment, pageUrls),
+    metaLibraryAds(garment),
+  ]);
+  if (shopping.warning) problems.push(shopping.warning);
   if (serp.warning) problems.push(serp.warning);
   if (meta.warning) console.error(meta.warning);
   const direct =
-    allowPublic && serp.ads.length + meta.ads.length < 3 ? await publicCompetitorAds(brands, pageUrls) : [];
-  const relevant = [...meta.ads, ...serp.ads, ...direct].filter((ad) =>
-    sameProduct(`${ad.title} ${ad.snippet} ${ad.hook ?? ""}`, garment),
+    allowPublic && shopping.ads.length + serp.ads.length + meta.ads.length < 3
+      ? await publicCompetitorAds(brands, pageUrls)
+      : [];
+  const relevant = [...shopping.ads, ...meta.ads, ...serp.ads, ...direct].filter((ad) =>
+    sameProduct(`${ad.snippet} ${ad.hook ?? ""}`, garment),
   );
-  if (relevant.length === 0 && serp.ads.length + meta.ads.length + direct.length > 0) {
+  if (relevant.length === 0 && shopping.ads.length + serp.ads.length + meta.ads.length + direct.length > 0) {
     problems.push(`Found live ads, but none were for a ${garment}.`);
   }
   const candidates = dedupeAds(relevant, 12);

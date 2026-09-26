@@ -81,7 +81,6 @@ export function Desk({
           stage?: BriefUpdate["stage"] | "done" | "error";
           brief?: Brief;
           warning?: string | null;
-          telegram?: { sent?: boolean; reason?: string };
           slack?: { sent?: boolean; reason?: string };
           grokbot?: { sent?: boolean; reason?: string };
           error?: string;
@@ -643,13 +642,11 @@ function BriefLoading({ progress }: { progress: BriefUpdate }) {
 
 function deliveryLine(body: {
   warning?: string | null;
-  telegram?: { sent?: boolean; reason?: string };
   slack?: { sent?: boolean; reason?: string };
   grokbot?: { sent?: boolean; reason?: string };
 }) {
   return [
     body.warning,
-    body.telegram?.sent ? "Sent to Telegram." : body.telegram?.reason,
     body.slack?.sent ? "Sent to Slack." : body.slack?.reason,
     body.grokbot?.sent ? "Sent to Grok Bot." : body.grokbot?.reason,
   ]

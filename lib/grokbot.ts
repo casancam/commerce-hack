@@ -33,7 +33,6 @@ export async function wakeGrokBot(brief: Brief, message?: string): Promise<SendR
       task: [
         "Post message to Slack verbatim, then post each image.",
         "Do not change the price, product, or variant text.",
-        "Ignore Telegram.",
         appUrl
           ? `A typed Slack reply is handled by Haggly. A voice note is transcribed first. If you receive a voice reply, POST {"text":"the instruction"} to ${appUrl}/api/grokbot with the same webhook key, then post the returned reply and imageUrls in the thread.`
           : "Reply in the Slack thread.",
@@ -65,7 +64,7 @@ export async function sendVoiceToAgent(input: { transcript: string; instruction:
       instruction: input.instruction,
       result: input.result,
       replyUrl: appUrl ? `${appUrl}/api/grokbot` : null,
-      task: "A Slack voice note was transcribed and already applied in Haggly. Post result to the Slack thread. Do not apply it again. Ignore Telegram.",
+      task: "A Slack voice note was transcribed and already applied in Haggly. Post result to the Slack thread. Do not apply it again.",
     }),
     signal: AbortSignal.timeout(8000),
   });

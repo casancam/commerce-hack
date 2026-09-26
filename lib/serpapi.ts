@@ -1,4 +1,4 @@
-import { sameProduct } from "@/lib/product-match";
+import { productType, sameProduct } from "@/lib/product-match";
 import type { CompetitorAd } from "@/lib/types";
 
 const SKIP_HOST =
@@ -123,6 +123,40 @@ function stillOn(lastShown?: number) {
 
 function mentions(ad: CompetitorAd, garment: string) {
   return sameProduct(`${ad.snippet} ${ad.title}`, garment);
+}
+
+export async function shoppingCompetitorAds(garment: string) {
+  if (!serpApiConfigured()) return { ads: [] as CompetitorAd[], warning: null as string | null };
+  try {
+    const search = await serp<{
+      shopping_results?: { title?: string; source?: string; link?: string; product_link?: string; thumbnail?: string }[];
+    }>({
+      engine: "google_shopping",
+      q: productType(garment) === "tote" ? "tote bag" : productType(garment) || garment,
+      gl: "uk",
+      hl: "en",
+      google_domain: "google.co.uk",
+      num: "20",
+    });
+    const ads: CompetitorAd[] = [];
+    for (const row of search.shopping_results ?? []) {
+      const name = row.title?.replace(/\s+/g, " ").trim() ?? "";
+      const imageUrl = row.thumbnail?.startsWith("http") ? row.thumbnail : null;
+      if (!name || !imageUrl || !sameProduct(name, garment)) continue;
+      const seller = row.source?.split(" - ")[0]?.trim() || "Shop";
+      ads.push({
+        title: seller,
+        url: row.link || row.product_link || `https://www.google.co.uk/search?tbm=shop&q=${encodeURIComponent(garment)}`,
+        imageUrl,
+        snippet: name,
+        platform: "Google",
+      });
+      if (ads.length >= 8) break;
+    }
+    return { ads, warning: null as string | null };
+  } catch (error) {
+    return { ads: [] as CompetitorAd[], warning: error instanceof Error ? error.message : "Shopping search failed" };
+  }
 }
 
 export async function serpApiCompetitorAds(garment: string, pageUrls: string[] = []) {
