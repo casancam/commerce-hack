@@ -6,7 +6,7 @@ export function tavilyConfigured() {
 
 export type TavilyHit = { title: string; url: string; content: string };
 
-export async function tavilySearch(query: string, maxResults = 5) {
+export async function tavilySearch(query: string, maxResults = 5, withImages = false) {
   const key = process.env.TAVILY_API_KEY;
   if (!key) throw new Error("Set TAVILY_API_KEY");
 
@@ -20,10 +20,12 @@ export async function tavilySearch(query: string, maxResults = 5) {
       query,
       search_depth: "basic",
       max_results: maxResults,
+      include_images: withImages,
     }),
   });
   const json = (await response.json()) as {
     results?: TavilyHit[];
+    images?: string[];
     detail?: { error?: string };
     error?: string;
   };
@@ -32,9 +34,10 @@ export async function tavilySearch(query: string, maxResults = 5) {
   }
 
   const results = json.results ?? [];
+  const images = (json.images ?? []).filter((url) => url.startsWith("http"));
   const supabase = getSupabase();
   if (supabase) {
-    await supabase.from("research").insert({ query, payload: results });
+    await supabase.from("research").insert({ query, payload: { results, images } });
   }
-  return results;
+  return { results, images };
 }

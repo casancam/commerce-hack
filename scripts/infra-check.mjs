@@ -93,8 +93,9 @@ async function checkShopify() {
 }
 
 async function checkMeta() {
-  if (!process.env.META_ACCESS_TOKEN || !process.env.META_AD_ACCOUNT_ID) {
-    line("Meta", false, "set META_ACCESS_TOKEN and META_AD_ACCOUNT_ID");
+  const metaToken = process.env.META_GRAPH_API_TOKEN || process.env.META_ACCESS_TOKEN;
+  if (!metaToken || !process.env.META_AD_ACCOUNT_ID) {
+    line("Meta", false, "set META_GRAPH_API_TOKEN and META_AD_ACCOUNT_ID");
     return;
   }
   const id = process.env.META_AD_ACCOUNT_ID.startsWith("act_")
@@ -102,7 +103,7 @@ async function checkMeta() {
     : `act_${process.env.META_AD_ACCOUNT_ID}`;
   const url = new URL(`https://graph.facebook.com/v21.0/${id}`);
   url.searchParams.set("fields", "name,currency");
-  url.searchParams.set("access_token", process.env.META_ACCESS_TOKEN);
+  url.searchParams.set("access_token", metaToken);
   const response = await fetch(url);
   const body = await response.json();
   if (!response.ok || body.error) {
@@ -128,8 +129,25 @@ async function checkTikTok() {
   line("TikTok", true, body.data?.list?.[0]?.name ?? process.env.TIKTOK_ADVERTISER_ID);
 }
 
+async function checkSerpApi() {
+  const key = process.env.SERPAPI_API_KEY;
+  if (!key) {
+    line("SerpApi", false, "set SERPAPI_API_KEY from https://serpapi.com");
+    return;
+  }
+  const response = await fetch(`https://serpapi.com/account.json?api_key=${encodeURIComponent(key)}`);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.error) {
+    line("SerpApi", false, body.error ?? `HTTP ${response.status}`);
+    return;
+  }
+  const left = body.total_searches_left ?? body.plan_searches_left;
+  line("SerpApi", true, left == null ? "key works" : `${left} searches left`);
+}
+
 await checkSupabase();
 await checkTavily();
+await checkSerpApi();
 await checkShopify();
 await checkMeta();
 await checkTikTok();

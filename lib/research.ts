@@ -1,0 +1,186 @@
+import { metaLibraryAds } from "@/lib/meta";
+import { extractGbpCents, plausibleCompetitorCents } from "@/lib/pricing";
+import { brandNames, publicCompetitorAds } from "@/lib/public-ads";
+import { serpApiCompetitorAds, serpApiConfigured } from "@/lib/serpapi";
+import { tavilyConfigured, tavilySearch, type TavilyHit } from "@/lib/tavily";
+import type { CompetitorAd, ResearchLink } from "@/lib/types";
+
+export type ResearchHit = TavilyHit & { kind: "price" | "ad"; imageUrl: string | null };
+
+function absoluteImage(pageUrl: string, image: string) {
+  if (image.startsWith("http")) return image;
+  try {
+    return new URL(image, pageUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+async function ogImage(pageUrl: string) {
+  try {
+    const response = await fetch(pageUrl, {
+      signal: AbortSignal.timeout(4000),
+      headers: { "User-Agent": "Haggly" },
+      redirect: "follow",
+    });
+    if (!response.ok) return null;
+    const html = await response.text();
+    const match =
+      html.match(/property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ??
+      html.match(/content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+    return match?.[1] ? absoluteImage(pageUrl, match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function researchOpportunity(title: string) {
+  if (!tavilyConfigured()) {
+    return {
+      links: [] as ResearchLink[],
+      hits: [] as ResearchHit[],
+      competitorAd: null as CompetitorAd | null,
+      competitorAds: [] as CompetitorAd[],
+      warning: "Set TAVILY_API_KEY to look up competitor prices and ads.",
+    };
+  }
+
+  const queries: { kind: "price" | "ad"; query: string }[] = [
+    { kind: "price", query: `${title} buy price GBP UK` },
+  ];
+  const links: ResearchLink[] = [];
+  const hits: ResearchHit[] = [];
+  const seen = new Set<string>();
+  const problems: string[] = [];
+  const looseImages: string[] = [];
+
+  for (const item of queries) {
+    try {
+      const search = await tavilySearch(item.query, 4, item.kind === "ad");
+      looseImages.push(...search.images);
+      for (const hit of search.results) {
+        if (seen.has(hit.url)) continue;
+        if (/coinmarketcap|coingecko|binance|tokenised|crypto|forex/i.test(`${hit.title} ${hit.url}`)) continue;
+        seen.add(hit.url);
+        const imageUrl = item.kind === "ad" ? (search.images[hits.filter((row) => row.kind === "ad").length] ?? null) : null;
+        hits.push({ ...hit, kind: item.kind, imageUrl });
+        links.push({
+          query: item.query,
+          title: hit.title,
+          url: hit.url,
+          kind: item.kind,
+          imageUrl,
+          snippet: hit.content.replace(/\s+/g, " ").slice(0, 280),
+        });
+      }
+    } catch (error) {
+      problems.push(error instanceof Error ? error.message : "Tavily search failed");
+    }
+  }
+
+  const priced = hits.filter((hit) => hit.kind === "price");
+  const names = brandNames(priced.map((hit) => hit.title));
+  const pageUrls = priced.map((hit) => hit.url);
+  const brands = names.length > 0 ? names : [title];
+  const serp = await serpApiCompetitorAds(brands, pageUrls);
+  if (serp.warning) problems.push(serp.warning);
+  const meta = await metaLibraryAds(names[0] || title);
+  if (meta.warning) console.error(meta.warning);
+  const direct =
+    serp.ads.length >= 2 ? [] : await publicCompetitorAds(brands, pageUrls);
+  const competitorAds = dedupeAds([...serp.ads, ...meta.ads, ...direct]);
+  if (!serpApiConfigured() && competitorAds.every((ad) => !ad.imageUrl)) {
+    problems.push("Set SERPAPI_API_KEY to load competitor creatives from Google Ads Transparency.");
+  }
+  for (const ad of competitorAds) {
+    if (seen.has(ad.url)) continue;
+    seen.add(ad.url);
+    hits.push({ title: ad.title, url: ad.url, content: ad.snippet, kind: "ad", imageUrl: ad.imageUrl });
+    links.push({
+      query: "Google Ads Transparency",
+      title: ad.title,
+      url: ad.url,
+      kind: "ad",
+      imageUrl: ad.imageUrl,
+      snippet: ad.snippet,
+    });
+  }
+
+  const competitorAd = competitorAds[0] ?? (await bestCompetitorAd(hits, looseImages));
+  return { links, hits, competitorAd, competitorAds, warning: problems[0] ?? null };
+}
+
+function dedupeAds(ads: CompetitorAd[]) {
+  const seen = new Set<string>();
+  const unique: CompetitorAd[] = [];
+  for (const ad of ads) {
+    const key = ad.imageUrl || ad.url;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(ad);
+    if (unique.length >= 4) break;
+  }
+  return unique;
+}
+
+function isArticle(url: string) {
+  return /\/blog\/|medium\.com|substack\.com/i.test(url);
+}
+
+async function bestCompetitorAd(hits: ResearchHit[], looseImages: string[]): Promise<CompetitorAd | null> {
+  const ads = hits.filter((hit) => hit.kind === "ad");
+  const first = ads.find((hit) => !isArticle(hit.url)) ?? ads[0];
+  if (!first) return null;
+  const article = isArticle(first.url);
+  const imageUrl = article ? null : first.imageUrl || looseImages[0] || (await ogImage(first.url));
+  const platform = /adstransparency\.google|googlesyndication/i.test(first.url)
+    ? "Google"
+    : /facebook\.com\/ads|instagram\.com/i.test(first.url)
+      ? "Meta"
+      : /tiktok\.com/i.test(first.url)
+        ? "TikTok"
+        : null;
+  if (!platform || !imageUrl) return null;
+  return {
+    title: first.title,
+    url: first.url,
+    imageUrl,
+    snippet: first.content.replace(/\s+/g, " ").slice(0, 280),
+    platform,
+  };
+}
+
+export function competitorPrices(hits: ResearchHit[], sellingCents = 0, costCents = 0) {
+  const prices = extractGbpCents(
+    hits.filter((hit) => hit.kind === "price").map((hit) => `${hit.title} ${hit.content}`),
+  );
+  if (sellingCents <= 0) return prices;
+  return plausibleCompetitorCents(prices, sellingCents, costCents);
+}
+
+export function competitorNote(hits: ResearchHit[], ourPriceCents: number, costCents = 0) {
+  const prices = competitorPrices(hits, ourPriceCents, costCents);
+  if (prices.length === 0) {
+    return hits.some((hit) => hit.kind === "price")
+      ? "Tavily found listings, but no clear £ prices to compare."
+      : "No competitor prices yet.";
+  }
+
+  const low = Math.min(...prices);
+  const high = Math.max(...prices);
+  const ours = (ourPriceCents / 100).toFixed(0);
+  const lowLabel = (low / 100).toFixed(0);
+  const highLabel = (high / 100).toFixed(0);
+  const range = low === high ? `£${lowLabel}` : `£${lowLabel}–£${highLabel}`;
+  if (ourPriceCents > high) return `Competitor listings sit around ${range}. Ours is £${ours}, above that range.`;
+  if (ourPriceCents < low) return `Competitor listings sit around ${range}. Ours is £${ours}, below that range.`;
+  return `Competitor listings sit around ${range}. Ours is £${ours}, inside that range.`;
+}
+
+export function adEvidence(hits: ResearchHit[]) {
+  return hits
+    .filter((hit) => hit.kind === "ad")
+    .slice(0, 6)
+    .map((hit) => `${hit.title} ${hit.url}. ${hit.content}`.replace(/\s+/g, " ").slice(0, 360))
+    .join("\n");
+}

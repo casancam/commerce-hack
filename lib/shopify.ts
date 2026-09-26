@@ -1,4 +1,12 @@
+import { readSession, refreshSession } from "@/lib/shopify-session";
+
 const API_VERSION = "2026-07";
+
+export type ShopifyAuth = {
+  domain: string;
+  token: string;
+  fromSession: boolean;
+};
 
 export function shopifyConfigured() {
   const domain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -7,7 +15,7 @@ export function shopifyConfigured() {
   return Boolean(domain && (token || client));
 }
 
-function shopDomain() {
+export function shopDomain() {
   return (process.env.SHOPIFY_STORE_DOMAIN ?? "")
     .replace(/^https?:\/\//, "")
     .replace(/\/$/, "");
@@ -41,13 +49,30 @@ export async function shopifyToken() {
   return json.access_token;
 }
 
+export async function shopifyContext(): Promise<ShopifyAuth | null> {
+  const session = await readSession();
+  if (session) {
+    const fresh = await refreshSession(session);
+    if (!fresh || fresh === "reauthorize") return null;
+    return { domain: fresh.shop, token: fresh.accessToken, fromSession: true };
+  }
+  if (!shopifyConfigured()) return null;
+  try {
+    return { domain: shopDomain(), token: await shopifyToken(), fromSession: false };
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
 export async function shopifyGraphql<T>(query: string, variables?: Record<string, unknown>) {
-  const token = await shopifyToken();
-  const response = await fetch(`https://${shopDomain()}/admin/api/${API_VERSION}/graphql.json`, {
+  const auth = await shopifyContext();
+  if (!auth) throw new Error("Shopify is not connected");
+  const response = await fetch(`https://${auth.domain}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Shopify-Access-Token": token,
+      "X-Shopify-Access-Token": auth.token,
     },
     body: JSON.stringify({ query, variables }),
   });

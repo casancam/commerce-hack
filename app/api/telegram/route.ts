@@ -1,6 +1,8 @@
-import { checkCounter, parsePounds, productForCounter } from "@/lib/counter";
+import { answerMerchant } from "@/lib/argue";
 import { saveCounter } from "@/lib/store";
 import { sendTelegram } from "@/lib/telegram";
+
+export const maxDuration = 60;
 
 type TelegramUpdate = {
   message?: {
@@ -23,12 +25,8 @@ export async function POST(request: Request) {
     return Response.json({ ok: true });
   }
 
-  const pounds = parsePounds(text);
-  const result = pounds === null ? null : checkCounter(productForCounter(), pounds);
-  const reply = result?.reply ?? "Reply with a price, like 70";
-
-  if (result) await saveCounter(result);
-
-  await sendTelegram(reply, String(chatId));
+  const outcome = await answerMerchant(text);
+  if (outcome.result) await saveCounter(outcome.result);
+  await sendTelegram(outcome.reply, String(chatId));
   return Response.json({ ok: true });
 }

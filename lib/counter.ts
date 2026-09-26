@@ -1,6 +1,6 @@
-import { POLICY, PRODUCTS } from "@/lib/catalog";
+import { POLICY } from "@/lib/catalog";
 import { gbp, marginPct } from "@/lib/format";
-import type { CounterResult, Product } from "@/lib/types";
+import type { CounterResult, Product, ProductRule } from "@/lib/types";
 
 export function parsePounds(input: string) {
   const match = input.trim().match(/^£?\s*(\d+(?:\.\d{1,2})?)$/);
@@ -10,22 +10,24 @@ export function parsePounds(input: string) {
   return pounds;
 }
 
-export function checkCounter(product: Product, pounds: number): CounterResult {
+export function checkCounter(product: Product, pounds: number, rule?: ProductRule): CounterResult {
   const proposedPriceCents = Math.round(pounds * 100);
   const margin = marginPct(proposedPriceCents, product.costCents);
-  const stockOk = product.stock >= POLICY.minStock;
-  const marginOk = margin >= POLICY.minMarginPct;
+  const minStock = rule?.minStock ?? POLICY.minStock;
+  const minMarginPct = rule?.minMarginPct ?? POLICY.minMarginPct;
+  const stockOk = product.stock > minStock;
+  const marginOk = margin >= minMarginPct;
   const priceLabel = gbp(proposedPriceCents);
 
   let reply: string;
   if (marginOk && stockOk) {
     reply = `Doable. At ${priceLabel} the margin is ${margin}%, with ${product.stock} in stock.`;
   } else if (!marginOk && !stockOk) {
-    reply = `Not doable. At ${priceLabel} the margin is ${margin}%, under your ${POLICY.minMarginPct}% floor, and stock is ${product.stock}.`;
+    reply = `Not doable. At ${priceLabel} the margin is ${margin}%, under your ${minMarginPct}% floor, and stock is ${product.stock}.`;
   } else if (!marginOk) {
-    reply = `Not doable. At ${priceLabel} the margin is ${margin}%, under your ${POLICY.minMarginPct}% floor. Stock is ${product.stock}.`;
+    reply = `Not doable. At ${priceLabel} the margin is ${margin}%, under your ${minMarginPct}% floor. Stock is ${product.stock}.`;
   } else {
-    reply = `Not doable. Stock is ${product.stock}, under the floor of ${POLICY.minStock}. Margin at ${priceLabel} would be ${margin}%.`;
+    reply = `Not doable. Stock is ${product.stock}. Stop when stock is ${minStock} or less. Margin at ${priceLabel} would be ${margin}%.`;
   }
 
   return {
@@ -35,8 +37,4 @@ export function checkCounter(product: Product, pounds: number): CounterResult {
     stock: product.stock,
     reply,
   };
-}
-
-export function productForCounter(productId?: string) {
-  return PRODUCTS.find((product) => product.id === productId) ?? PRODUCTS.find((product) => product.id === "wool-overshirt")!;
 }

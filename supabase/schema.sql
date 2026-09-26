@@ -54,5 +54,26 @@ insert into policies (id, min_margin_pct, max_daily_spend_cents, min_stock)
 values (1, 40, 15000, 5)
 on conflict (id) do nothing;
 
-grant select, insert, update, delete on products, policies, decisions, counters, campaigns, research
+create table if not exists product_rules (
+  product_id text primary key,
+  min_price_cents int not null,
+  campaign_price_cents int,
+  min_margin_pct int not null,
+  min_stock int not null,
+  updated_at timestamptz not null default now()
+);
+
+grant select, insert, update, delete on products, policies, decisions, counters, campaigns, research, product_rules
   to anon, authenticated, service_role;
+
+create table if not exists shopify_sessions (
+  shop text primary key,
+  access_token text not null,
+  refresh_token text,
+  expires_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+alter table shopify_sessions enable row level security;
+
+grant select, insert, update, delete on shopify_sessions to service_role;

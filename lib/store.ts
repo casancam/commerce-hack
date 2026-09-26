@@ -1,11 +1,23 @@
 import { getSupabase } from "@/lib/supabase";
-import type { Bundle, CounterResult } from "@/lib/types";
+import type { Brief, CounterResult } from "@/lib/types";
 
-export async function saveDecision(bundle: Bundle) {
+export async function saveDecision(brief: Brief) {
   const supabase = getSupabase();
   if (!supabase) return;
-  const { error } = await supabase.from("decisions").insert({ payload: bundle });
+  const { error } = await supabase.from("decisions").insert({ payload: brief });
   if (error) console.error(error.message);
+}
+
+export async function latestBrief() {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("decisions")
+    .select("payload")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error || !data?.[0]) return null;
+  return data[0].payload as Brief;
 }
 
 export async function saveCounter(result: CounterResult) {

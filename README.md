@@ -1,6 +1,6 @@
-# Today's pick
+# Haggly
 
-A merchant desk that chooses one product from a seeded catalog, stages a Meta and TikTok campaign, and sends the suggestion to Telegram. Reply with a price and it checks stock and margin.
+Haggly chooses one product, stages a Meta and TikTok campaign, and sends the suggestion to Telegram. Reply with a price and it checks stock and margin.
 
 The catalog lives in `lib/catalog.ts`. The rule is 40% minimum margin, £150 a day, and stock of at least 5. The demo winner is the wool overshirt. The cheap tee is rejected for stock. The silk scarf and sunglasses are rejected for margin.
 
@@ -12,15 +12,17 @@ npm run infra:check
 npm run dev
 ```
 
-Open http://localhost:3000. The page works from the seeded catalog before the other services are connected.
+Open the app. The page works from the seeded catalog before the other services are connected.
 
 ## Infra
 
-`npm run infra:check` pings Supabase, Tavily, Shopify, Meta, and TikTok. It only reads accounts. It does not create ads.
+`npm run infra:check` pings Supabase, Tavily, SerpApi, Shopify, Meta, and TikTok. It only reads accounts. It does not create ads.
 
 Supabase is already pointed at your project. Open the SQL editor and run `supabase/schema.sql` once. That creates products, policies, decisions, counters, campaigns, and research.
 
 Tavily has no separate redeem step. Sign in at [app.tavily.com](https://app.tavily.com), copy the API key into `TAVILY_API_KEY`, and the credits already on that account are what the key spends. A basic search costs 1 credit. A hackathon coupon, if you were handed one, goes in Billing on that same page.
+
+Competitor creatives come from [SerpApi's Google Ads Transparency Center API](https://serpapi.com/google-ads-transparency-center-api). Copy the key into `SERPAPI_API_KEY`. A brief searches the competitor's domain and shows the ad image. Meta's Ad Library stays connected for when that app is authorised.
 
 Shopify trial stores are merchant stores. This app needs a dev store in the same org as the app.
 
@@ -31,7 +33,9 @@ Shopify trial stores are merchant stores. This app needs a dev store in the same
 
 If the trial store already gave you an Admin API token, put that in `SHOPIFY_ADMIN_TOKEN` instead of the client id and secret.
 
-Meta: Ads Manager → the ad account id from the URL, and a token with `ads_read` from [Graph API Explorer](https://developers.facebook.com/tools/explorer/) or a system user. Set `META_ACCESS_TOKEN` and `META_AD_ACCOUNT_ID`. `META_PAGE_ID` is for launching a paused ad later.
+The app opens on a landing page. In the Dev Dashboard, allow `{APP_URL}/api/shopify/callback` as a redirect. Enter the `*.myshopify.com` domain, approve access in Shopify, and Haggly imports products, stock, cost, and the last 30 days of sales before opening the studio. Run the new `shopify_sessions` table from `supabase/schema.sql` so that connection stays available after the browser cookie.
+
+Meta: Ads Manager → the ad account id from the URL, and a user token from [Graph API Explorer](https://developers.facebook.com/tools/explorer/). Set `META_GRAPH_API_TOKEN` and `META_AD_ACCOUNT_ID`. Competitor creatives also need the app authorised at [facebook.com/ads/library/api](https://www.facebook.com/ads/library/api/). `META_PAGE_ID` is for launching a paused ad later.
 
 TikTok: [business-api.tiktok.com](https://business-api.tiktok.com) → your app's advertiser token and advertiser id. Set `TIKTOK_ACCESS_TOKEN` and `TIKTOK_ADVERTISER_ID`.
 
@@ -50,6 +54,12 @@ npm run telegram:webhook -- https://your-app.vercel.app
 ```
 
 That registers `https://your-app.vercel.app/api/telegram`.
+
+A finished brief still goes to Telegram. It also posts the campaign to Slack and wakes Grok Bot when those are set.
+
+Slack: create a bot with `chat:write`, invite it to a channel, and set `SLACK_BOT_TOKEN` and `SLACK_CHANNEL_ID`. For replies, turn on Event Subscriptions for `message.channels`, point the request URL at `https://your-app.vercel.app/api/slack`, and set `SLACK_SIGNING_SECRET`. A reply in that channel changes the selected image, names another product, or says `push` to go live.
+
+Grok Bot: save an active webhook routine, then set `GROK_BOT_WEBHOOK_URL` and `GROK_BOT_WEBHOOK_KEY`. Haggly POSTs the proposal there so the bot can post it to Slack.
 
 ## Supabase
 
