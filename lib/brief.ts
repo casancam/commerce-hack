@@ -112,10 +112,12 @@ async function pickWithGrok(catalog: Catalog, rules: Record<string, ProductRule>
 async function editVariants(
   drafts: ReturnType<typeof draftVariants>,
   stock: string,
+  onImage?: (index: number, total: number, label: string) => void,
 ): Promise<{ variants: AdVariant[]; imagesMs: number }> {
   const started = Date.now();
   const variants: AdVariant[] = [];
   for (const [index, draft] of drafts.entries()) {
+    onImage?.(index, drafts.length, draft.label);
     let imageUrl = stock;
     try {
       imageUrl = await grokAdImage(draft.imagePrompt, stock);
@@ -143,6 +145,7 @@ async function creativeWithGrok(
   priceNote: string,
   campaignPriceCents: number,
   budgets: { meta: number; tiktok: number },
+  onProgress?: (update: BriefUpdate) => void,
 ) {
   const product = catalog.products.find((item) => item.id === brief.chosen.id);
   const system = [
@@ -157,6 +160,7 @@ async function creativeWithGrok(
     "telegram is the short daily message and starts with Haggly.",
   ].join(" ");
   const copyStarted = Date.now();
+  onProgress?.({ stage: "copy", detail: "Writing the headline and the two scenes", step: 5, total: BRIEF_STEPS });
   const parsed = parseGrokJson<GrokCreative>(
     await grokChat(
       system,
@@ -184,7 +188,14 @@ async function creativeWithGrok(
   const primaryText = clip(parsed.primaryText, 280, brief.chosen.primaryText);
   const drafts = draftVariants(parsed, hits, brief.chosen.title);
   const stock = product ? stockReference(product) : brief.chosen.imageUrl;
-  const edited = await editVariants(drafts, stock);
+  const edited = await editVariants(drafts, stock, (index, total, label) => {
+    onProgress?.({
+      stage: "image",
+      detail: `Editing still ${index + 1} of ${total}: ${label}. Each still usually takes about a minute.`,
+      step: 6 + index,
+      total: BRIEF_STEPS,
+    });
+  });
   const variants = edited.variants;
   const selected = variants.find((variant) => !variant.imageUrl.startsWith("/products/")) ?? variants[0];
   const generatedImage = variants.some((variant) => variant.imageUrl.startsWith("http"));
@@ -240,9 +251,20 @@ async function creativeWithGrok(
   };
 }
 
-export async function runBrief(onProgress?: (stage: "stock" | "ads" | "assets") => void) {
+export type BriefStage = "stock" | "photo" | "ads" | "rank" | "copy" | "image";
+
+export type BriefUpdate = {
+  stage: BriefStage;
+  detail: string;
+  step: number;
+  total: number;
+};
+
+const BRIEF_STEPS = 7;
+
+export async function runBrief(onProgress?: (update: BriefUpdate) => void) {
   const totalStarted = Date.now();
-  onProgress?.("stock");
+  onProgress?.({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: BRIEF_STEPS });
   const catalog = await loadCatalog();
   const { rules } = await loadRules(catalog.products);
   const previous = await latestBrief();
@@ -267,9 +289,18 @@ export async function runBrief(onProgress?: (stage: "stock" | "ads" | "assets") 
     analysisMs += Date.now() - pickStarted;
   }
 
-  onProgress?.("ads");
   const researchStarted = Date.now();
-  const research = await researchOpportunity(preview.chosen.title, preview.chosen.imageUrl);
+  const research = await researchOpportunity(preview.chosen.title, preview.chosen.imageUrl, (stage) => {
+    if (stage === "photo") {
+      onProgress?.({ stage, detail: `Reading the photo of ${preview.chosen.title}`, step: 2, total: BRIEF_STEPS });
+    }
+    if (stage === "ads") {
+      onProgress?.({ stage, detail: "Looking up prices and competitor ads", step: 3, total: BRIEF_STEPS });
+    }
+    if (stage === "rank") {
+      onProgress?.({ stage, detail: "Comparing those ads with your product", step: 4, total: BRIEF_STEPS });
+    }
+  });
   const researchMs = Date.now() - researchStarted;
   if (research.warning) warnings.push(research.warning);
   const priceNote = competitorNote(research.hits, preview.chosen.priceCents, preview.chosen.costCents);
@@ -294,7 +325,6 @@ export async function runBrief(onProgress?: (stage: "stock" | "ads" | "assets") 
 
   brief.competitorAds = research.competitorAds;
   brief.creativeAngles = research.angles;
-  onProgress?.("assets");
   if (grokConfigured()) {
     try {
       const created = await creativeWithGrok(
@@ -305,6 +335,7 @@ export async function runBrief(onProgress?: (stage: "stock" | "ads" | "assets") 
         priceNote,
         suggestion.cents,
         budgets,
+        onProgress,
       );
       brief = created.brief;
       analysisMs += created.copyMs;

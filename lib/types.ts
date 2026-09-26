@@ -54,6 +54,16 @@ export type CompetitorAd = {
   imageUrl: string | null;
   snippet: string;
   platform: "Google" | "Meta" | "TikTok";
+  /** Days the transparency record says this creative was shown. The public stand-in for performance. */
+  daysShown?: number;
+  /** False when the creative's last-shown date is already in the past. */
+  active?: boolean;
+  /** Public reach label, such as "EU reach 18k". Absent when the library does not publish one. */
+  reach?: string;
+  /** Where Meta says the ad ran, such as "Instagram, Facebook". */
+  placements?: string;
+  /** How Grok read the creative. The snippet stays the advertiser's own line. */
+  hook?: string;
 };
 
 export type Chosen = {

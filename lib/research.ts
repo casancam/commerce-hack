@@ -35,7 +35,11 @@ async function ogImage(pageUrl: string) {
   }
 }
 
-export async function researchOpportunity(title: string, imageUrl?: string) {
+export async function researchOpportunity(
+  title: string,
+  imageUrl?: string,
+  onProgress?: (stage: "photo" | "ads" | "rank") => void,
+) {
   if (!tavilyConfigured()) {
     return {
       links: [] as ResearchLink[],
@@ -47,14 +51,26 @@ export async function researchOpportunity(title: string, imageUrl?: string) {
     };
   }
 
-  const queries: { kind: "price" | "ad"; query: string }[] = [
-    { kind: "price", query: `${title} buy price GBP UK` },
-  ];
   const links: ResearchLink[] = [];
   const hits: ResearchHit[] = [];
   const seen = new Set<string>();
   const problems: string[] = [];
   const looseImages: string[] = [];
+
+  let garment = title;
+  if (imageUrl && grokConfigured()) {
+    onProgress?.("photo");
+    try {
+      garment = (await garmentFromPhoto(imageUrl, title)).garment || title;
+    } catch (error) {
+      problems.push(error instanceof Error ? error.message : "Grok could not read the product photo");
+    }
+  }
+
+  onProgress?.("ads");
+  const queries: { kind: "price" | "ad"; query: string }[] = [
+    { kind: "price", query: `${garment} buy price GBP UK` },
+  ];
 
   for (const item of queries) {
     try {
@@ -83,15 +99,13 @@ export async function researchOpportunity(title: string, imageUrl?: string) {
   const priced = hits.filter((hit) => hit.kind === "price");
   const names = brandNames(priced.map((hit) => hit.title));
   const pageUrls = priced.map((hit) => hit.url);
-  let garment = title;
-  if (imageUrl && grokConfigured()) {
-    try {
-      garment = (await garmentFromPhoto(imageUrl, title)).garment || title;
-    } catch (error) {
-      problems.push(error instanceof Error ? error.message : "Grok could not read the product photo");
-    }
-  }
-  const found = await findCompetitorAds({ garment, productImageUrl: imageUrl, pageUrls, brands: names.length > 0 ? names : [title] });
+  const found = await findCompetitorAds({
+    garment,
+    productImageUrl: imageUrl,
+    pageUrls,
+    brands: names.length > 0 ? names : [title],
+    onProgress,
+  });
   problems.push(...found.problems);
   const { competitorAds, angles } = found;
   if (!serpApiConfigured() && competitorAds.every((ad) => !ad.imageUrl)) {
@@ -120,11 +134,13 @@ export async function findCompetitorAds({
   productImageUrl,
   pageUrls = [],
   brands = [],
+  onProgress,
 }: {
   garment: string;
   productImageUrl?: string;
   pageUrls?: string[];
   brands?: string[];
+  onProgress?: (stage: "rank") => void;
 }) {
   const problems: string[] = [];
   const [serp, meta] = await Promise.all([serpApiCompetitorAds(garment, pageUrls), metaLibraryAds(garment)]);
@@ -138,6 +154,7 @@ export async function findCompetitorAds({
   }
 
   try {
+    onProgress?.("rank");
     const { verdicts, angles } = await rankCompetitorAds(
       productImageUrl,
       garment,
@@ -149,7 +166,7 @@ export async function findCompetitorAds({
       .slice(0, 4)
       .map((verdict) => {
         const ad = candidates[verdict.index];
-        return { ...ad, snippet: verdict.hook ? `${ad.title}: ${verdict.hook}` : ad.snippet };
+        return verdict.hook ? { ...ad, hook: verdict.hook } : ad;
       });
     return { competitorAds, angles: competitorAds.length > 0 ? angles : [], ranked: true, problems };
   } catch (error) {

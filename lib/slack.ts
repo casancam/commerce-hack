@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { gbp } from "@/lib/format";
+import { proposalText } from "@/lib/proposal";
 import type { Brief } from "@/lib/types";
 
 export type SlackSend = { sent: boolean; reason?: string; channel?: string; ts?: string };
@@ -35,22 +35,15 @@ async function slackApi(method: string, body: Record<string, unknown>) {
   return (await response.json()) as { ok?: boolean; error?: string; channel?: string; ts?: string };
 }
 
-export async function postSlackCampaign(brief: Brief): Promise<SlackSend> {
+export async function postSlackCampaign(brief: Brief, text = proposalText(brief)): Promise<SlackSend> {
   const channel = process.env.SLACK_CHANNEL_ID;
   if (!token() || !channel) return { sent: false, reason: "Slack is not connected." };
 
-  const images = (brief.chosen.variants ?? []).filter((variant) => variant.imageUrl.startsWith("https://")).slice(0, 2);
+  const images = (brief.chosen.variants ?? []).filter((variant) => variant.imageUrl.startsWith("https://")).slice(0, 4);
   const blocks = [
     {
-      type: "header",
-      text: { type: "plain_text", text: `Haggly · ${brief.chosen.title}`.slice(0, 150) },
-    },
-    {
       type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*${brief.chosen.headline}*\n${brief.chosen.primaryText}\nCampaign price ${gbp(brief.chosen.campaignPriceCents)}`,
-      },
+      text: { type: "mrkdwn", text: text.slice(0, 2900) },
     },
     ...images.map((variant) => ({
       type: "image",
@@ -58,20 +51,23 @@ export async function postSlackCampaign(brief: Brief): Promise<SlackSend> {
       alt_text: variant.label,
       title: { type: "plain_text", text: variant.label.slice(0, 150) },
     })),
-    {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: "Reply in this thread to change an image, name another product, or say *push* to go live.",
-        },
-      ],
-    },
   ];
 
-  const json = await slackApi("chat.postMessage", { channel, text: brief.telegram, blocks });
+  const json = await slackApi("chat.postMessage", { channel, text: text.slice(0, 2900), blocks });
   if (!json.ok) return { sent: false, reason: `Slack: ${json.error ?? "could not post"}` };
   return { sent: true, channel: json.channel, ts: json.ts };
+}
+
+export async function downloadSlackFile(url: string) {
+  const auth = token();
+  if (!auth) throw new Error("Slack is not connected.");
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${auth}` },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!response.ok) throw new Error("Could not download that Slack file.");
+  const type = (response.headers.get("content-type") || "application/octet-stream").split(";")[0];
+  return { bytes: Buffer.from(await response.arrayBuffer()), type };
 }
 
 export async function replySlack(channel: string, text: string, threadTs?: string, imageUrl?: string) {

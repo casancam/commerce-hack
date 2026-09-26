@@ -105,6 +105,55 @@ export async function reviseVariant(variantId: string, message?: string) {
   return { brief: next, reply };
 }
 
+export async function addVariant(message?: string) {
+  const brief = await latestBrief();
+  if (!brief?.chosen) throw new Error("Run today's brief first.");
+  const catalog = await loadCatalog();
+  const product = catalog.products.find((item) => item.id === brief.chosen.id);
+  if (!product) throw new Error("That product is not in the catalog.");
+
+  const stock = stockReference(product);
+  const current = variantsOf(brief, product.title, stock);
+  const note = message?.trim() || "A new scene, different from the stills we already have.";
+  const parsed = parseGrokJson<GrokRevise>(
+    await grokChat(
+      [
+        "You write one new square ad still. A photo of the exact product will be attached to the image model.",
+        "Keep that product identical. The scene must be different from the stills already made.",
+        'Reply with JSON only: {"reply":"","label":"","why":"","imagePrompt":""}',
+        "reply is one sentence. imagePrompt has no text, logo, or price.",
+      ].join(" "),
+      JSON.stringify({
+        product: product.title,
+        note,
+        existing: current.map((item) => ({ label: item.label, prompt: item.prompt })),
+      }),
+    ),
+  );
+  const prompt = clip(parsed.imagePrompt, 700, `This exact ${product.title}. ${note}`);
+  const label = clip(parsed.label, 40, "New still");
+  const why = clip(parsed.why, 400, note);
+  const reply = clip(parsed.reply, 400, "Added a new still from the stock photo.");
+  const imageUrl = await grokAdImage(prompt, stock);
+  const variant: AdVariant = {
+    id: `extra-${current.length + 1}`,
+    label,
+    imageUrl,
+    why,
+    sourceTitle: "",
+    sourceUrl: "",
+    prompt,
+  };
+  const variants = [...current, variant];
+  const next: Brief = {
+    ...brief,
+    generatedImage: true,
+    chosen: { ...brief.chosen, variants },
+  };
+  await saveDecision(next);
+  return { brief: next, reply, imageUrl, variant };
+}
+
 export async function selectVariant(variantId: string) {
   const brief = await latestBrief();
   if (!brief) throw new Error("Run today's brief first.");

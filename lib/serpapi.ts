@@ -8,6 +8,9 @@ type ListedCreative = {
   advertiser_id?: string;
   ad_creative_id?: string;
   details_link?: string;
+  total_days_shown?: number;
+  first_shown?: number;
+  last_shown?: number;
 };
 
 type DetailedCreative = {
@@ -90,16 +93,32 @@ async function imageAds(domain: string) {
       if (!creative || !imageUrl) return null;
       const name = row.advertiser || domain;
       const line = creative.headline || creative.snippet || creative.call_to_action;
+      const days = daysShown(row);
       return {
         title: name,
         url: row.details_link || `https://adstransparency.google.com/?region=GB&domain=${encodeURIComponent(domain)}`,
         imageUrl,
         snippet: line ? `${name}: ${line.replace(/\s+/g, " ").slice(0, 180)}` : `${name} is running this Google ad.`,
         platform: "Google",
+        daysShown: days,
+        active: stillOn(row.last_shown),
       };
     }),
   );
   return ads.filter((ad): ad is CompetitorAd => Boolean(ad));
+}
+
+function daysShown(row: ListedCreative) {
+  if (row.total_days_shown && row.total_days_shown > 0) return Math.round(row.total_days_shown);
+  if (row.first_shown && row.last_shown && row.last_shown >= row.first_shown) {
+    return Math.max(1, Math.round((row.last_shown - row.first_shown) / 86_400));
+  }
+  return undefined;
+}
+
+function stillOn(lastShown?: number) {
+  if (!lastShown) return undefined;
+  return Date.now() / 1000 - lastShown < 86_400 * 3;
 }
 
 function mentions(ad: CompetitorAd, garment: string) {

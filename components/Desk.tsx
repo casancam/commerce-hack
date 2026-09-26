@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { BriefUpdate } from "@/lib/brief";
 import { PlatformLogo } from "@/components/PlatformLogo";
 import { RuleFields } from "@/components/RuleFields";
 import { gbp, marginPct } from "@/lib/format";
 import type { AdVariant, Brief, CampaignDraft, Product, ProductRule } from "@/lib/types";
-
-type BriefStage = "stock" | "ads" | "assets";
 
 export function Desk({
   initial,
@@ -28,8 +27,8 @@ export function Desk({
   const [notice, setNotice] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState("");
   const [liveNote, setLiveNote] = useState<string | null>(null);
-  const [pending, setPending] = useState<"brief" | "suggest" | "budget" | null>(null);
-  const [stage, setStage] = useState<BriefStage | null>(null);
+  const [pending, setPending] = useState<"brief" | "suggest" | "budget" | "meta" | null>(null);
+  const [progress, setProgress] = useState<BriefUpdate | null>(null);
   const [openNote, setOpenNote] = useState<string | null>(null);
   const [imageNote, setImageNote] = useState("");
   const [imageBusy, setImageBusy] = useState<string | null>(null);
@@ -61,7 +60,7 @@ export function Desk({
 
   async function runBrief() {
     setPending("brief");
-    setStage("stock");
+    setProgress({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: 7 });
     setNotice(null);
     try {
       const response = await fetch("/api/decide", { method: "POST" });
@@ -73,49 +72,51 @@ export function Desk({
       const decoder = new TextDecoder();
       let buffer = "";
       let finished = false;
+      const applyLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const event = JSON.parse(trimmed) as BriefUpdate & {
+          brief?: Brief;
+          warning?: string | null;
+          telegram?: { sent?: boolean; reason?: string };
+          slack?: { sent?: boolean; reason?: string };
+          grokbot?: { sent?: boolean; reason?: string };
+          error?: string;
+        };
+        if (event.detail && event.step && event.stage && event.stage !== "done" && event.stage !== "error") {
+          setProgress({ stage: event.stage, detail: event.detail, step: event.step, total: event.total || 7 });
+        }
+        if (event.stage === "error") setNotice(event.error ?? "Could not run today's brief.");
+        if (event.stage === "done" && event.brief) {
+          finished = true;
+          const next = event.brief;
+          setBrief(next);
+          if (next.chosen?.campaignPriceCents) {
+            setRulesState((current) => ({
+              ...current,
+              [next.chosen.id]: {
+                ...(current[next.chosen.id] ?? rule),
+                campaignPriceCents: next.chosen.campaignPriceCents,
+              },
+            }));
+          }
+          setNotice(deliveryLine(event));
+        }
+      };
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        if (value) buffer += decoder.decode(value, { stream: true });
+        if (done) buffer += decoder.decode();
         const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line) as {
-            stage?: string;
-            brief?: Brief;
-            warning?: string | null;
-            telegram?: { sent?: boolean; reason?: string };
-            slack?: { sent?: boolean; reason?: string };
-            grokbot?: { sent?: boolean; reason?: string };
-            error?: string;
-          };
-          if (event.stage === "stock" || event.stage === "ads" || event.stage === "assets") {
-            setStage(event.stage);
-          }
-          if (event.stage === "error") setNotice(event.error ?? "Could not run today's brief.");
-          if (event.stage === "done" && event.brief) {
-            finished = true;
-            const next = event.brief;
-            setBrief(next);
-            if (next.chosen?.campaignPriceCents) {
-              setRulesState((current) => ({
-                ...current,
-                [next.chosen.id]: {
-                  ...(current[next.chosen.id] ?? rule),
-                  campaignPriceCents: next.chosen.campaignPriceCents,
-                },
-              }));
-            }
-            setNotice(deliveryLine(event));
-          }
-        }
+        if (!done) buffer = lines.pop() ?? "";
+        for (const line of lines) applyLine(line);
+        if (done) break;
       }
       if (!finished) setNotice((current) => current ?? "Could not run today's brief.");
     } catch {
       setNotice("Could not run today's brief.");
     } finally {
-      setStage(null);
+      setProgress(null);
       setPending(null);
     }
   }
@@ -198,6 +199,38 @@ export function Desk({
     });
   }
 
+  async function publishMeta() {
+    const cents = Math.round(Number(budgetDraft.meta) * 100);
+    const dailyBudgetCents = Number.isFinite(cents) && cents > 0 ? cents : meta.dailyBudgetCents;
+    setPending("meta");
+    setLiveNote(null);
+    try {
+      const response = await fetch("/api/meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: meta.name,
+          headline: meta.headline,
+          primaryText: meta.primaryText,
+          imageUrl: previewImage,
+          destinationUrl: meta.destinationUrl,
+          dailyBudgetCents,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setLiveNote(body?.error ?? "Meta did not create the campaign.");
+        return;
+      }
+      setLiveNote(body.message ?? "Campaign created in Ads Manager.");
+      if (body.url) window.open(body.url, "_blank", "noopener,noreferrer");
+    } catch {
+      setLiveNote("Meta did not create the campaign.");
+    } finally {
+      setPending(null);
+    }
+  }
+
   async function savePlatformBudget(platform: "meta" | "tiktok") {
     const cents = Math.round(Number(budgetDraft[platform]) * 100);
     if (!Number.isFinite(cents) || cents <= 0) return;
@@ -228,7 +261,7 @@ export function Desk({
 
   return (
     <>
-    {stage ? <BriefLoading stage={stage} /> : null}
+    {progress ? <BriefLoading progress={progress} /> : null}
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-5 py-8 sm:px-8 lg:py-10">
       <header className="flex flex-wrap items-end justify-between gap-6 border-b-2 border-ink pb-8">
         <div>
@@ -413,16 +446,30 @@ export function Desk({
                 <div className="border-b-2 border-ink bg-well">
                   <Photo src={ad.imageUrl || ""} alt={ad.title} />
                 </div>
-                <div className="space-y-1.5 px-4 py-3">
+                <div className="space-y-2 px-4 py-3">
                   <p className="flex items-center gap-2 text-sm font-semibold">
                     <PlatformLogo platform={ad.platform ?? "Google"} />
                     <span className="truncate">
                       {ad.platform ?? "Google"} · {ad.title}
                     </span>
                   </p>
+                  {ad.daysShown || ad.reach || ad.placements ? (
+                    <p className="flex flex-wrap gap-1">
+                      {ad.daysShown ? (
+                        <span className="chip bg-accent py-0 normal-case tracking-normal">
+                          {ad.active === false ? `Ran ${ad.daysShown}d` : `${ad.daysShown}d live`}
+                        </span>
+                      ) : null}
+                      {ad.reach ? <span className="chip py-0 normal-case tracking-normal">{ad.reach}</span> : null}
+                      {ad.placements ? (
+                        <span className="chip py-0 normal-case tracking-normal">{ad.placements}</span>
+                      ) : null}
+                    </p>
+                  ) : null}
                   <p className="line-clamp-3 text-xs leading-5 text-ink/70">
                     {ad.snippet.startsWith(`${ad.title}: `) ? ad.snippet.slice(ad.title.length + 2) : ad.snippet}
                   </p>
+                  {ad.hook ? <p className="line-clamp-2 text-xs leading-5 font-medium">{ad.hook}</p> : null}
                 </div>
               </a>
             ))}
@@ -522,14 +569,14 @@ export function Desk({
                   </label>
                 </div>
                 {campaign.platform === "meta" && metaAdsUrl ? (
-                  <a
-                    href={metaAdsUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="studio-btn studio-btn-primary w-full py-3 text-center text-base"
+                  <button
+                    type="button"
+                    onClick={() => void publishMeta()}
+                    disabled={pending !== null}
+                    className="studio-btn studio-btn-primary w-full py-3 text-base"
                   >
-                    Go live ↗
-                  </a>
+                    {pending === "meta" ? "Creating…" : "Go live ↗"}
+                  </button>
                 ) : (
                   <button
                     type="button"
@@ -561,29 +608,69 @@ function SectionHead({ index, title, accent }: { index: string; title: string; a
   );
 }
 
-function BriefLoading({ stage }: { stage: BriefStage }) {
-  const steps: BriefStage[] = ["stock", "ads", "assets"];
-  const copy = {
-    stock: "Analysing your stock",
-    ads: "Reading competitor ads",
-    assets: "Generating campaign assets",
-  };
-  const current = steps.indexOf(stage);
+const LOADING_STEPS: { id: BriefUpdate["stage"]; label: string }[] = [
+  { id: "stock", label: "Stock" },
+  { id: "photo", label: "Photo" },
+  { id: "ads", label: "Search" },
+  { id: "rank", label: "Pick" },
+  { id: "copy", label: "Copy" },
+  { id: "image", label: "Stills" },
+];
+
+function BriefLoading({ progress }: { progress: BriefUpdate }) {
+  const current = Math.max(0, LOADING_STEPS.findIndex((step) => step.id === progress.stage));
+  const [elapsed, setElapsed] = useState(0);
+  const [creep, setCreep] = useState(0);
+
+  useEffect(() => {
+    const started = Date.now();
+    const id = window.setInterval(() => setElapsed(Date.now() - started), 500);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      const seconds = (Date.now() - started) / 1000;
+      setCreep(1 - Math.exp(-seconds / 25));
+    }, 200);
+    return () => window.clearInterval(id);
+  }, [progress.step]);
+
+  const total = progress.total || 7;
+  const percent = Math.min(96, ((progress.step - 1 + creep * 0.85) / total) * 100);
+  const clock = `${Math.floor(elapsed / 60000)}:${String(Math.floor((elapsed % 60000) / 1000)).padStart(2, "0")}`;
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-accent px-6">
       <div className="dotgrid absolute inset-0" aria-hidden="true" />
-      <img src="/haggly.png" alt="" className="brief-logo relative h-48 w-48 object-contain" />
-      <p className="display relative mt-8 text-center text-[clamp(2.5rem,6vw,5rem)] uppercase">
-        {copy[stage]}
+      <img src="/haggly.png" alt="" className="brief-logo relative h-40 w-40 object-contain" />
+      <p className="relative mt-6 font-mono text-xs tracking-widest uppercase">
+        Step {Math.min(progress.step, total)} of {total} · {clock}
+      </p>
+      <p className="display relative mt-3 max-w-3xl text-center text-[clamp(1.8rem,4.5vw,3.4rem)] uppercase">
+        {progress.detail}
         <span className="blink">…</span>
       </p>
-      <ol className="relative mt-8 flex flex-wrap justify-center gap-2">
-        {steps.map((step, index) => (
+      <div
+        className="relative mt-8 w-full max-w-md"
+        role="progressbar"
+        aria-valuenow={Math.round(percent)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuetext={`Step ${progress.step} of ${total}. ${progress.detail}`}
+      >
+        <div className="h-4 overflow-hidden rounded-full border-2 border-ink bg-card">
+          <div className="h-full bg-ink transition-[width] duration-200 ease-out" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+      <ol className="relative mt-6 flex flex-wrap justify-center gap-2">
+        {LOADING_STEPS.map((step, index) => (
           <li
-            key={step}
+            key={step.id}
             className={`chip ${index < current ? "bg-ink text-accent" : index === current ? "bg-card" : "bg-transparent opacity-50"}`}
           >
-            {index < current ? "✓" : `0${index + 1}`} {step}
+            {index < current ? "✓" : `0${index + 1}`} {step.label}
           </li>
         ))}
       </ol>
