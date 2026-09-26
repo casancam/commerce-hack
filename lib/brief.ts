@@ -254,7 +254,7 @@ export type BriefUpdate = {
 
 const BRIEF_STEPS = 4;
 
-export async function runBrief(onProgress?: (update: BriefUpdate) => void) {
+export async function runBrief(onProgress?: (update: BriefUpdate) => void, productId?: string) {
   const totalStarted = Date.now();
   onProgress?.({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: BRIEF_STEPS });
   const catalog = await loadCatalog();
@@ -267,9 +267,14 @@ export async function runBrief(onProgress?: (update: BriefUpdate) => void) {
   const warnings: string[] = [];
   let analysisMs = 0;
   let imagesMs = 0;
-  let preview = buildPreview(catalog, undefined, rules);
+  let preview = buildPreview(catalog, productId, rules);
+  if (productId && preview.chosen.id !== productId) {
+    throw new Error("That product does not clear its rules.");
+  }
 
-  if (!grokConfigured()) {
+  if (productId) {
+    onProgress?.({ stage: "stock", detail: `Promoting ${preview.chosen.title}`, step: 1, total: BRIEF_STEPS });
+  } else if (!grokConfigured()) {
     warnings.push("Set XAI_API_KEY from console.x.ai so Haggly can choose the product and generate the ad.");
   } else {
     const pickStarted = Date.now();

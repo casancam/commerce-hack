@@ -1,3 +1,4 @@
+import { suggestionTarget } from "@/lib/argue";
 import { runBrief } from "@/lib/brief";
 import { buildPreview } from "@/lib/decide";
 import { loadCatalog } from "@/lib/live-catalog";
@@ -5,7 +6,15 @@ import { loadCatalog } from "@/lib/live-catalog";
 export const maxDuration = 45;
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => null)) as { message?: string; productId?: string } | null;
+  let productId = body?.productId;
+  let earlyReply = "";
+  if (body?.message?.trim()) {
+    const target = await suggestionTarget(body.message, body.productId);
+    if ("productId" in target) productId = target.productId;
+    else earlyReply = target.reply;
+  }
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -17,7 +26,11 @@ export async function POST() {
         controller.enqueue(encoder.encode(`${line}${pad}\n`));
       };
       try {
-        const { brief, warning } = await runBrief((update) => send(update));
+        if (earlyReply) {
+          send({ stage: "reply", reply: earlyReply });
+          return;
+        }
+        const { brief, warning } = await runBrief((update) => send(update), productId);
         send({ stage: "done", brief, warning });
       } catch (error) {
         send({

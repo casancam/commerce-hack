@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BriefUpdate } from "@/lib/brief";
 import { PlatformLogo } from "@/components/PlatformLogo";
 import { RuleFields } from "@/components/RuleFields";
@@ -33,12 +33,55 @@ export function Desk({
   const [openNote, setOpenNote] = useState<string | null>(null);
   const [imageNote, setImageNote] = useState("");
   const [imageBusy, setImageBusy] = useState<string | null>(null);
+  const [briefProductId, setBriefProductId] = useState("");
+  const seenDecision = useRef<string | null>(null);
+  const briefRef = useRef(brief);
+  briefRef.current = brief;
 
   const metaBudget = budgetOf(brief, "meta");
   const tiktokBudget = budgetOf(brief, "tiktok");
   useEffect(() => {
     setBudgetDraft({ meta: pounds(metaBudget), tiktok: pounds(tiktokBudget) });
   }, [metaBudget, tiktokBudget]);
+
+  useEffect(() => {
+    if (pending || progress) return;
+    let cancelled = false;
+    const pull = async () => {
+      if (cancelled || document.visibilityState === "hidden") return;
+      const response = await fetch("/api/brief").catch(() => null);
+      if (!response?.ok || cancelled) return;
+      const body = (await response.json()) as { createdAt?: string | null; brief?: Brief | null };
+      if (!body.createdAt || !body.brief) return;
+      if (seenDecision.current === body.createdAt) return;
+      const first = seenDecision.current === null;
+      seenDecision.current = body.createdAt;
+      if (first || briefStamp(body.brief) === briefStamp(briefRef.current)) return;
+      const next = body.brief;
+      setBrief(next);
+      if (next.chosen?.campaignPriceCents) {
+        setRulesState((current) => ({
+          ...current,
+          [next.chosen.id]: {
+            ...(current[next.chosen.id] ?? {
+              minPriceCents: 0,
+              campaignPriceCents: next.chosen.campaignPriceCents,
+              minMarginPct: 40,
+              minStock: 5,
+            }),
+            campaignPriceCents: next.chosen.campaignPriceCents,
+          },
+        }));
+      }
+      setNotice("Updated from Slack.");
+    };
+    void pull();
+    const id = window.setInterval(() => void pull(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [pending, progress]);
 
   const { chosen } = brief;
   const product = products.find((item) => item.id === chosen.id);
@@ -60,14 +103,19 @@ export function Desk({
   const competitorAds = foundAds.filter((ad) => sameProduct(`${ad.title} ${ad.snippet} ${ad.hook ?? ""}`, chosen.title));
   const priceLinks = brief.research.filter((link) => link.kind !== "ad" && usefulLink(link));
 
-  async function runBrief() {
+  async function runBrief(body?: { message?: string; productId?: string }) {
     setPending("brief");
     setProgress({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: 4 });
     setNotice(null);
     let finished = false;
+    let answered = false;
     let watchdog = 0;
     try {
-      const response = await fetch("/api/decide", { method: "POST" });
+      const response = await fetch("/api/decide", {
+        method: "POST",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
       if (!response.ok || !response.body) {
         setNotice("Could not run today's brief.");
         return;
@@ -89,7 +137,13 @@ export function Desk({
           slack?: { sent?: boolean; reason?: string };
           grokbot?: { sent?: boolean; reason?: string };
           error?: string;
+          reply?: string;
         };
+        if (event.stage === "reply" && event.reply) {
+          answered = true;
+          setNotice(event.reply);
+          return;
+        }
         if (event.detail && event.step && event.stage && event.stage !== "done" && event.stage !== "error") {
           setProgress({ stage: event.stage, detail: event.detail, step: event.step, total: event.total || 7 });
         }
@@ -119,7 +173,7 @@ export function Desk({
         for (const line of lines) applyLine(line);
         if (done) break;
       }
-      if (!finished) setNotice((current) => current ?? "Could not run today's brief.");
+      if (!finished && !answered) setNotice((current) => current ?? "Could not run today's brief.");
     } catch {
       setNotice("Could not run today's brief.");
     } finally {
@@ -160,24 +214,11 @@ export function Desk({
     }
   }
 
-  async function submitSuggestion() {
-    setPending("suggest");
-    setNotice(null);
-    try {
-      const response = await fetch("/api/argue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: suggestion, productId: chosen.id, intent: "suggest" }),
-      });
-      const body = await response.json();
-      if (body.brief) setBrief(body.brief);
-      setNotice([body.reply, deliveryLine(body)].filter(Boolean).join(" "));
-      setSuggestion("");
-    } catch {
-      setNotice("Could not send that to Grok.");
-    } finally {
-      setPending(null);
-    }
+  function submitSuggestion() {
+    const message = suggestion.trim();
+    if (!message) return;
+    setSuggestion("");
+    void runBrief({ message, productId: chosen.id });
   }
 
   async function editImage(variantId: string, message?: string) {
@@ -263,9 +304,25 @@ export function Desk({
           </h1>
         </div>
         <div className="flex flex-col items-start gap-3 sm:items-end">
+          <label className="flex w-full flex-col gap-1 sm:w-64 sm:items-end">
+            <span className="kicker">Product</span>
+            <select
+              value={briefProductId}
+              onChange={(event) => setBriefProductId(event.target.value)}
+              disabled={pending !== null}
+              className="studio-input w-full rounded-full px-4 py-2.5 text-sm"
+            >
+              <option value="">Haggly picks</option>
+              {[...products].sort((a, b) => a.title.localeCompare(b.title)).map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.title}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
-            onClick={() => void runBrief()}
+            onClick={() => void runBrief(briefProductId ? { productId: briefProductId } : undefined)}
             disabled={pending !== null}
             className="studio-btn studio-btn-acid px-7 py-3.5 text-lg"
           >
@@ -657,6 +714,21 @@ function BriefLoading({ progress }: { progress: BriefUpdate }) {
       </ol>
     </div>
   );
+}
+
+function briefStamp(brief: Brief) {
+  const chosen = brief.chosen;
+  const images = (chosen.variants ?? []).map((variant) => `${variant.id}:${variant.imageUrl}`).join("|");
+  return [
+    chosen.id,
+    chosen.campaignPriceCents,
+    chosen.priceCents,
+    chosen.stock,
+    chosen.marginPct,
+    chosen.headline,
+    chosen.primaryText,
+    images,
+  ].join("~");
 }
 
 function deliveryLine(body: {

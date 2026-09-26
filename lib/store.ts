@@ -9,15 +9,20 @@ export async function saveDecision(brief: Brief) {
 }
 
 export async function latestBrief() {
+  const row = await latestDecision();
+  return row?.brief ?? null;
+}
+
+export async function latestDecision() {
   const supabase = getSupabase();
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("decisions")
-    .select("payload")
+    .select("created_at, payload")
     .order("created_at", { ascending: false })
     .limit(1);
   if (error || !data?.[0]) return null;
-  return data[0].payload as Brief;
+  return { createdAt: data[0].created_at as string, brief: data[0].payload as Brief };
 }
 
 export async function saveCounter(result: CounterResult) {
