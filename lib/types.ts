@@ -130,6 +130,7 @@ export type Brief = {
   };
   telegram: string;
   slack?: { channel: string; ts: string };
+  pendingGeneration?: boolean;
 };
 
 export type CounterResult = {

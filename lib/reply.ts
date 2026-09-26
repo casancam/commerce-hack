@@ -1,4 +1,4 @@
-import { answerMerchant } from "@/lib/argue";
+import { answerMerchant, generateSuggestedBrief } from "@/lib/argue";
 import { POLICY } from "@/lib/catalog";
 import { gbp, marginPct } from "@/lib/format";
 import { loadCatalog } from "@/lib/live-catalog";
@@ -116,8 +116,11 @@ export async function handleMerchantReply(message: string): Promise<MerchantRepl
     (product) => hay.includes(product.title.toLowerCase()) || hay.includes(product.id.replaceAll("-", " ")),
   );
   if (named && /\b(instead|switch|other|suggest|push|use|try|promote)\b/i.test(text)) {
-    const outcome = await answerMerchant(text, brief?.chosen.id, "suggest");
-    return { reply: outcome.reply, brief: outcome.brief, imageUrls: [] };
+    const outcome = await generateSuggestedBrief(text, brief?.chosen.id);
+    const images = (outcome.brief?.chosen.variants ?? [])
+      .map((variant) => variant.imageUrl)
+      .filter((url) => url.startsWith("https://"));
+    return { reply: outcome.reply, brief: outcome.brief, imageUrls: images };
   }
 
   const outcome = await answerMerchant(text, brief?.chosen.id);

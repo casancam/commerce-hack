@@ -75,6 +75,31 @@ export async function suggestionTarget(
   return { productId: switchId };
 }
 
+export async function generateSuggestedBrief(message: string, currentId?: string) {
+  const target = await suggestionTarget(message, currentId);
+  if (!("productId" in target)) return { reply: target.reply, brief: null as Brief | null };
+
+  const catalog = await loadCatalog();
+  const { rules } = await loadRules(catalog.products);
+  const saved = await latestBrief();
+  const pending = carryBudgets(buildPreview(catalog, target.productId, rules), saved);
+  pending.pendingGeneration = true;
+  pending.telegram = `Generating the ${pending.chosen.title} brief.`;
+  await saveDecision(pending);
+
+  try {
+    const { brief, warning } = await runBrief(undefined, target.productId);
+    const reply = [`Generated the ${brief.chosen.title} campaign.`, warning].filter(Boolean).join(" ");
+    brief.telegram = reply;
+    await saveDecision(brief);
+    return { reply, brief };
+  } catch (error) {
+    if (saved) await saveDecision(saved);
+    const reply = error instanceof Error ? error.message : "Could not generate that campaign.";
+    return { reply, brief: null as Brief | null };
+  }
+}
+
 export async function answerMerchant(message: string, productId?: string, intent?: string) {
   const text = message.trim();
   if (!text) {

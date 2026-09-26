@@ -45,7 +45,7 @@ export function Desk({
   }, [metaBudget, tiktokBudget]);
 
   useEffect(() => {
-    if (pending || progress) return;
+    if (pending) return;
     let cancelled = false;
     const pull = async () => {
       if (cancelled || document.visibilityState === "hidden") return;
@@ -56,8 +56,18 @@ export function Desk({
       if (seenDecision.current === body.createdAt) return;
       const first = seenDecision.current === null;
       seenDecision.current = body.createdAt;
+      if (body.brief.pendingGeneration) {
+        setProgress({
+          stage: "stock",
+          detail: `Generating the ${body.brief.chosen.title} brief`,
+          step: 1,
+          total: 4,
+        });
+        return;
+      }
       if (first || briefStamp(body.brief) === briefStamp(briefRef.current)) return;
       const next = body.brief;
+      setProgress(null);
       setBrief(next);
       if (next.chosen?.campaignPriceCents) {
         setRulesState((current) => ({
@@ -81,7 +91,7 @@ export function Desk({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [pending, progress]);
+  }, [pending]);
 
   const { chosen } = brief;
   const product = products.find((item) => item.id === chosen.id);
