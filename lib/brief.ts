@@ -139,6 +139,7 @@ async function creativeWithGrok(
   brief: Brief,
   catalog: Catalog,
   hits: ResearchHit[],
+  angles: string[],
   priceNote: string,
   campaignPriceCents: number,
   budgets: { meta: number; tiktok: number },
@@ -148,6 +149,7 @@ async function creativeWithGrok(
     "You are Haggly. Write today's ad for the product already chosen.",
     "The campaign price is already decided. Do not invent a different price.",
     "Use the ads that are already running. Each variant must name one of those sources and the format it borrows.",
+    "angles are creative directions taken from the strongest competitor ads for this product. Build each variant's scene on one of them, pushed further so ours stands out. Never copy a brand.",
     "Two image variants of the same stock photo: one with a person wearing the exact product, one in a styled setting.",
     "imagePrompt describes only the scene. The attached photo stays the product. No text, letters, logo, or price in the image.",
     "Reply with JSON only.",
@@ -172,6 +174,7 @@ async function creativeWithGrok(
           : brief.chosen,
         priceNote,
         ads: adEvidence(hits),
+        angles,
       }),
     ),
   );
@@ -266,7 +269,7 @@ export async function runBrief(onProgress?: (stage: "stock" | "ads" | "assets") 
 
   onProgress?.("ads");
   const researchStarted = Date.now();
-  const research = await researchOpportunity(preview.chosen.title);
+  const research = await researchOpportunity(preview.chosen.title, preview.chosen.imageUrl);
   const researchMs = Date.now() - researchStarted;
   if (research.warning) warnings.push(research.warning);
   const priceNote = competitorNote(research.hits, preview.chosen.priceCents, preview.chosen.costCents);
@@ -290,16 +293,26 @@ export async function runBrief(onProgress?: (stage: "stock" | "ads" | "assets") 
   };
 
   brief.competitorAds = research.competitorAds;
+  brief.creativeAngles = research.angles;
   onProgress?.("assets");
   if (grokConfigured()) {
     try {
-      const created = await creativeWithGrok(brief, catalog, research.hits, priceNote, suggestion.cents, budgets);
+      const created = await creativeWithGrok(
+        brief,
+        catalog,
+        research.hits,
+        research.angles,
+        priceNote,
+        suggestion.cents,
+        budgets,
+      );
       brief = created.brief;
       analysisMs += created.copyMs;
       imagesMs = created.imagesMs;
       brief.research = research.links;
       brief.competitorAd = research.competitorAd;
       brief.competitorAds = research.competitorAds;
+      brief.creativeAngles = research.angles;
       brief.chosen.priceSuggestion = suggestion.note;
       brief.chosen.campaignPriceCents = suggestion.cents;
     } catch (error) {

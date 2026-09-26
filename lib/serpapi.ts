@@ -1,17 +1,20 @@
 import type { CompetitorAd } from "@/lib/types";
 
 const SKIP_HOST =
-  /google\.|facebook\.|instagram\.|pinterest\.|reddit\.|wikipedia\.|youtube\.|tiktok\.|amazon\.|ebay\.|medium\.|substack\./i;
+  /google\.|facebook\.|instagram\.|pinterest\.|reddit\.|wikipedia\.|youtube\.|tiktok\.|amazon\.|ebay\.|etsy\.|vinted\.|depop\.|lyst\.|idealo\.|pricerunner\.|medium\.|substack\./i;
 
-type Creative = {
+type ListedCreative = {
   advertiser?: string;
-  format?: string;
-  image?: string;
-  width?: number;
-  height?: number;
+  advertiser_id?: string;
+  ad_creative_id?: string;
   details_link?: string;
-  target_domain?: string;
-  total_days_shown?: number;
+};
+
+type DetailedCreative = {
+  image?: string;
+  snippet?: string;
+  headline?: string;
+  call_to_action?: string;
 };
 
 export function serpApiConfigured() {
@@ -32,62 +35,90 @@ function domainsFrom(urls: string[]) {
   return [...new Set(hosts)];
 }
 
-async function search(text: string) {
+async function serp<T>(params: Record<string, string>) {
   const key = process.env.SERPAPI_API_KEY;
-  if (!key) return [] as Creative[];
+  if (!key) throw new Error("Set SERPAPI_API_KEY");
   const url = new URL("https://serpapi.com/search.json");
-  url.searchParams.set("engine", "google_ads_transparency_center");
-  url.searchParams.set("text", text);
-  url.searchParams.set("region", "2826");
-  url.searchParams.set("num", "10");
+  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
   url.searchParams.set("api_key", key);
-
-  const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
-  const json = (await response.json()) as { ad_creatives?: Creative[]; error?: string };
-  if (!response.ok || json.error) {
-    throw new Error(json.error || "SerpApi request failed");
-  }
-  return json.ad_creatives ?? [];
+  const response = await fetch(url, { signal: AbortSignal.timeout(25000) });
+  const json = (await response.json()) as T & { error?: string };
+  if (!response.ok || json.error) throw new Error(json.error || "SerpApi request failed");
+  return json;
 }
 
-function toAd(row: Creative, query: string): CompetitorAd | null {
-  if (!row.image) return null;
-  if ((row.width && row.width < 48) || (row.height && row.height < 48)) return null;
-  const name = row.advertiser || row.target_domain || query;
-  const days = row.total_days_shown ? `, shown for ${row.total_days_shown} days` : "";
-  return {
-    title: name,
-    url: row.details_link || `https://adstransparency.google.com/?region=GB&domain=${encodeURIComponent(query)}`,
-    imageUrl: row.image,
-    snippet: `${name} is running this ${row.format ?? "image"} ad${days}. It is public in Google's Ads Transparency Center.`,
-    platform: "Google",
-  };
+function visualImage(url: string | undefined) {
+  if (!url) return null;
+  if (url.includes("/archive/simgad/")) return null;
+  if (/gstatic\.com\/shopping|sadbundle|ggpht\.com|ytimg\.com/i.test(url)) return url;
+  return null;
 }
 
-export async function serpApiCompetitorAds(brands: string[], pageUrls: string[]) {
+// The Transparency Center only searches by advertiser domain or legal name, so find
+// the shops that rank for the product first and look up their ads by domain.
+async function sellerDomains(garment: string) {
+  const search = await serp<{ organic_results?: { link?: string }[] }>({
+    engine: "google",
+    q: garment,
+    gl: "uk",
+    hl: "en",
+    google_domain: "google.co.uk",
+    num: "20",
+  });
+  return domainsFrom((search.organic_results ?? []).map((row) => row.link ?? ""));
+}
+
+async function imageAds(domain: string) {
+  const listed = await serp<{ ad_creatives?: ListedCreative[] }>({
+    engine: "google_ads_transparency_center",
+    text: domain,
+    region: "2826",
+    creative_format: "image",
+    num: "20",
+  }).catch(() => ({ ad_creatives: [] as ListedCreative[] }));
+  const rows = (listed.ad_creatives ?? []).filter((row) => row.advertiser_id && row.ad_creative_id).slice(0, 8);
+  const ads = await Promise.all(
+    rows.map(async (row): Promise<CompetitorAd | null> => {
+      const details = await serp<{ ad_creatives?: DetailedCreative[] }>({
+        engine: "google_ads_transparency_center_ad_details",
+        advertiser_id: row.advertiser_id as string,
+        creative_id: row.ad_creative_id as string,
+        region: "2826",
+      }).catch(() => null);
+      const creative = (details?.ad_creatives ?? []).find((item) => visualImage(item.image));
+      const imageUrl = visualImage(creative?.image);
+      if (!creative || !imageUrl) return null;
+      const name = row.advertiser || domain;
+      const line = creative.headline || creative.snippet || creative.call_to_action;
+      return {
+        title: name,
+        url: row.details_link || `https://adstransparency.google.com/?region=GB&domain=${encodeURIComponent(domain)}`,
+        imageUrl,
+        snippet: line ? `${name}: ${line.replace(/\s+/g, " ").slice(0, 180)}` : `${name} is running this Google ad.`,
+        platform: "Google",
+      };
+    }),
+  );
+  return ads.filter((ad): ad is CompetitorAd => Boolean(ad));
+}
+
+function mentions(ad: CompetitorAd, garment: string) {
+  const noun = garment.toLowerCase().split(/\s+/).filter(Boolean).pop() ?? "";
+  return noun.length > 2 && ad.snippet.toLowerCase().includes(noun);
+}
+
+export async function serpApiCompetitorAds(garment: string, pageUrls: string[] = []) {
   if (!serpApiConfigured()) return { ads: [] as CompetitorAd[], warning: null as string | null };
 
-  const queries = [...domainsFrom(pageUrls).slice(0, 2)];
-  if (queries.length === 0 && brands[0]) queries.push(brands[0]);
-
-  const ads: CompetitorAd[] = [];
-  const seen = new Set<string>();
   try {
-    for (const query of queries) {
-      if (ads.length >= 4) break;
-      for (const row of await search(query)) {
-        const ad = toAd(row, query);
-        if (!ad?.imageUrl || seen.has(ad.imageUrl)) continue;
-        seen.add(ad.imageUrl);
-        ads.push(ad);
-        if (ads.length >= 4) break;
-      }
-    }
+    const domains = [...new Set([...(await sellerDomains(garment)), ...domainsFrom(pageUrls)])].slice(0, 4);
+    const found = (await Promise.all(domains.map(imageAds))).flat();
+    const seen = new Set<string>();
+    const unique = found.filter((ad) => ad.imageUrl && !seen.has(ad.imageUrl) && seen.add(ad.imageUrl));
+    const named = unique.filter((ad) => mentions(ad, garment));
+    const ads = named.length >= 3 ? named : [...named, ...unique.filter((ad) => !mentions(ad, garment))];
+    return { ads: ads.slice(0, 8), warning: null as string | null };
   } catch (error) {
-    return {
-      ads,
-      warning: error instanceof Error ? error.message : "SerpApi request failed",
-    };
+    return { ads: [] as CompetitorAd[], warning: error instanceof Error ? error.message : "SerpApi request failed" };
   }
-  return { ads, warning: null };
 }

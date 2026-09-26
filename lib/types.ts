@@ -111,6 +111,7 @@ export type Brief = {
   research: ResearchLink[];
   competitorAd: CompetitorAd | null;
   competitorAds: CompetitorAd[];
+  creativeAngles?: string[];
   timings?: {
     researchMs: number;
     analysisMs: number;

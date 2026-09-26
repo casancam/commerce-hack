@@ -61,52 +61,55 @@ export function RuleFields({
   }
 
   return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-muted">Min campaign profit</p>
-      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm">
-        <span className="rounded-md border border-line bg-background px-3 py-2">{gbp(shelfCents)}</span>
-        <span className="text-muted">+</span>
-        <span className="flex items-center rounded-md border border-line bg-background px-3">
-          <input
-            value={marginText}
-            onChange={(event) => setMarginText(event.target.value)}
-            onBlur={() => commitMargin(marginText)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitMargin(marginText);
-              }
-            }}
-            inputMode="numeric"
-            aria-label="Min campaign profit"
-            className="w-12 bg-transparent py-2 text-sm outline-none"
-          />
-          <span className="text-muted">%</span>
-        </span>
-        <span className="text-muted">=</span>
-        <span className="font-semibold">{gbp(draft.minPriceCents)}</span>
+    <div className="space-y-5">
+      <div>
+        <p className="kicker text-ink">Min campaign profit</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold">
+          <span className="num rounded-[0.85rem] border-2 border-ink bg-well px-3 py-2">{gbp(shelfCents)}</span>
+          <span className="display text-xl">+</span>
+          <span className="studio-field px-3">
+            <input
+              value={marginText}
+              onChange={(event) => setMarginText(event.target.value)}
+              onBlur={() => commitMargin(marginText)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitMargin(marginText);
+                }
+              }}
+              inputMode="numeric"
+              aria-label="Min campaign profit"
+              className="num w-10 py-2 text-sm"
+            />
+            <span className="text-muted">%</span>
+          </span>
+          <span className="display text-xl">=</span>
+          <span className="num rounded-[0.85rem] border-2 border-ink bg-accent px-3 py-2">{gbp(draft.minPriceCents)}</span>
+        </div>
+        <p className="mt-2 text-xs text-muted">Price is the shelf plus this profit.</p>
       </div>
-      <p className="mt-1 text-xs text-muted">Price is the shelf plus this profit.</p>
-      <div className="mt-3 max-w-xs">
+      <div className="flex flex-wrap items-end gap-5">
         <Field
           label="Campaign price"
           value={pounds(draft.campaignPriceCents)}
+          prefix="£"
           onCommit={(input) => {
             const cents = money(input);
             if (cents === null) return;
             commit({ ...draft, campaignPriceCents: cents });
           }}
         />
+        <StopStock
+          value={String(draft.minStock)}
+          onCommit={(input) => {
+            const stock = whole(input);
+            if (stock === null) return;
+            commit({ ...draft, minStock: stock });
+          }}
+        />
       </div>
-      <StopStock
-        value={String(draft.minStock)}
-        onCommit={(input) => {
-          const stock = whole(input);
-          if (stock === null) return;
-          commit({ ...draft, minStock: stock });
-        }}
-      />
-      {note ? <p className="mt-1 text-xs text-muted">{note}</p> : null}
+      {note ? <p className="rounded-lg border-2 border-ink bg-hot/20 px-3 py-2 text-xs font-medium">{note}</p> : null}
     </div>
   );
 }
@@ -115,22 +118,26 @@ function StopStock({ value, onCommit }: { value: string; onCommit: (value: strin
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
-    <label className="mt-3 flex items-center gap-2 text-sm">
-      <span>Stop when stock is</span>
-      <input
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onBlur={() => onCommit(text)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            onCommit(text);
-          }
-        }}
-        inputMode="numeric"
-        className="w-16 rounded-md border border-line bg-background px-2 py-1.5 text-sm outline-none"
-      />
-      <span>or less</span>
+    <label className="block">
+      <span className="kicker text-ink">Stop when stock is</span>
+      <span className="mt-2 flex items-center gap-2 text-sm font-medium">
+        <span className="studio-field px-3">
+          <input
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onBlur={() => onCommit(text)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onCommit(text);
+              }
+            }}
+            inputMode="numeric"
+            className="num w-12 py-2 text-sm font-semibold"
+          />
+        </span>
+        <span className="text-muted">or less</span>
+      </span>
     </label>
   );
 }
@@ -138,20 +145,21 @@ function StopStock({ value, onCommit }: { value: string; onCommit: (value: strin
 function Field({
   label,
   value,
-  suffix,
+  prefix,
   onCommit,
 }: {
   label: string;
   value: string;
-  suffix?: string;
+  prefix?: string;
   onCommit: (value: string) => void;
 }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
-    <label className="block text-xs">
-      <span className="font-medium uppercase tracking-wide text-muted">{label}</span>
-      <span className="mt-1 flex items-center rounded-md border border-line bg-background px-3">
+    <label className="block">
+      <span className="kicker text-ink">{label}</span>
+      <span className="studio-field mt-2 w-40 gap-1 px-3 text-sm font-semibold">
+        {prefix ? <span className="text-muted">{prefix}</span> : null}
         <input
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -163,9 +171,8 @@ function Field({
             }
           }}
           inputMode="decimal"
-          className="w-full bg-transparent py-2 text-sm outline-none"
+          className="num w-full py-2 text-sm"
         />
-        {suffix ? <span className="text-muted">{suffix}</span> : null}
       </span>
     </label>
   );

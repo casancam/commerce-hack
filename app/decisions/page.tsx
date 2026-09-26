@@ -16,40 +16,58 @@ export default async function DecisionsPage() {
   const board = decisionBoard(catalog.products, rules, brief);
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-8 py-6">
-      <header>
-        <h1 className="text-3xl font-semibold tracking-tight">Decisions</h1>
-        <p className="mt-1 text-sm text-muted">What clears each product&apos;s rules, and what is held back.</p>
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-5 py-8 sm:px-8 lg:py-10">
+      <header className="flex flex-wrap items-end justify-between gap-6 border-b-2 border-ink pb-8">
+        <div>
+          <p className="chip">
+            {board.opportunities.length} go · {board.rejected.length} held
+          </p>
+          <h1 className="display mt-4 text-[clamp(3rem,7vw,6rem)] uppercase">
+            The <span className="serif normal-case">decisions</span>
+          </h1>
+        </div>
+        <p className="kicker max-w-xs">What clears each product&apos;s rules, and what is held back.</p>
       </header>
-      <section className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-2xl border border-line bg-card p-5">
-          <h2 className="text-lg font-semibold">Opportunities</h2>
-          <ul className="mt-3 space-y-3">
+      <section className="grid gap-6 lg:grid-cols-2">
+        <article className="panel overflow-hidden">
+          <div className="flex items-center justify-between border-b-2 border-ink bg-accent px-6 py-4">
+            <h2 className="display text-3xl uppercase">Go</h2>
+            <span className="display text-3xl">{board.opportunities.length}</span>
+          </div>
+          <ul className="divide-y-2 divide-dashed divide-ink/20">
             {board.opportunities.length === 0 ? (
-              <li className="text-sm text-muted">Nothing clears its rules yet.</li>
+              <li className="px-6 py-5 text-[15px] text-muted">Nothing clears its rules yet.</li>
             ) : (
               board.opportunities.map((item) => (
-                <li key={item.id} className="text-sm">
-                  <span className="font-medium">{item.title}.</span>{" "}
-                  <span className="uppercase tracking-wide text-muted">{item.stance}.</span>{" "}
-                  <span className="text-muted">
-                    {gbp(item.priceCents)} · {item.marginPct}% · {item.stock} in stock. {item.why}
-                  </span>
+                <li key={item.id} className="px-6 py-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="display text-2xl">{item.title}</p>
+                    <span className="chip bg-ink text-accent">{item.stance}</span>
+                  </div>
+                  <p className="mt-3 flex flex-wrap gap-2">
+                    <span className="chip num">{gbp(item.priceCents)}</span>
+                    <span className="chip num">{item.marginPct}% margin</span>
+                    <span className="chip num">{item.stock} in stock</span>
+                  </p>
+                  <p className="mt-3 text-[15px] leading-6 text-ink/70">{item.why}</p>
                 </li>
               ))
             )}
           </ul>
         </article>
-        <article className="rounded-2xl border border-line bg-card p-5">
-          <h2 className="text-lg font-semibold">Blocked</h2>
-          <ul className="mt-3 space-y-3">
+        <article className="panel overflow-hidden">
+          <div className="flex items-center justify-between border-b-2 border-ink bg-hot px-6 py-4">
+            <h2 className="display text-3xl uppercase">Held</h2>
+            <span className="display text-3xl">{board.rejected.length}</span>
+          </div>
+          <ul className="divide-y-2 divide-dashed divide-ink/20">
             {board.rejected.length === 0 ? (
-              <li className="text-sm text-muted">Nothing is blocked.</li>
+              <li className="px-6 py-5 text-[15px] text-muted">Nothing is blocked.</li>
             ) : (
               board.rejected.map((item) => (
-                <li key={item.title} className="text-sm">
-                  <span className="font-medium">{item.title}.</span>{" "}
-                  <span className="text-muted">{item.reason}</span>
+                <li key={item.title} className="px-6 py-5">
+                  <p className="display text-2xl">{item.title}</p>
+                  <p className="mt-2 text-[15px] leading-6 text-ink/70">{item.reason}</p>
                 </li>
               ))
             )}

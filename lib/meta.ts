@@ -5,6 +5,12 @@ function adAccountId() {
   return raw.startsWith("act_") ? raw : `act_${raw}`;
 }
 
+export function metaAdsManagerUrl() {
+  const raw = (process.env.META_AD_ACCOUNT_ID ?? "").replace(/^act_/, "");
+  if (!raw) return null;
+  return `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${raw}`;
+}
+
 export function metaToken() {
   return process.env.META_GRAPH_API_TOKEN || process.env.META_ACCESS_TOKEN || "";
 }
@@ -13,22 +19,50 @@ export function metaConfigured() {
   return Boolean(metaToken() && process.env.META_AD_ACCOUNT_ID);
 }
 
+// Meta's Ad Library API only returns commercial ads delivered in the EU; elsewhere it is political ads only.
+function libraryCountries() {
+  const list = (process.env.META_AD_LIBRARY_COUNTRIES || "IE,NL,DE,FR")
+    .split(",")
+    .map((code) => code.trim().toUpperCase())
+    .filter(Boolean);
+  return JSON.stringify(list);
+}
+
+async function snapshotImage(snapshotUrl: string) {
+  try {
+    const response = await fetch(snapshotUrl, {
+      signal: AbortSignal.timeout(6000),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36",
+      },
+    });
+    if (!response.ok) return null;
+    const html = (await response.text()).replace(/\\\//g, "/").replace(/&amp;/g, "&");
+    const images = html.match(/https:\/\/(?:scontent|external)[^"'\s\\)]+?\.(?:jpg|jpeg|png)[^"'\s\\)]*/gi) ?? [];
+    return images.find((src) => !/[ps]\d{2,3}x\d{2,3}/.test(src)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function metaLibraryAds(query: string): Promise<{ ads: CompetitorAd[]; warning: string | null }> {
   const token = metaToken();
   if (!token) return { ads: [], warning: null };
 
   const url = new URL("https://graph.facebook.com/v21.0/ads_archive");
   url.searchParams.set("search_terms", query);
-  url.searchParams.set("ad_reached_countries", '["GB"]');
+  url.searchParams.set("ad_reached_countries", libraryCountries());
   url.searchParams.set("ad_type", "ALL");
   url.searchParams.set("ad_active_status", "ACTIVE");
   url.searchParams.set("fields", "id,page_name,ad_snapshot_url,ad_creative_bodies,ad_creative_link_titles");
-  url.searchParams.set("limit", "6");
+  url.searchParams.set("limit", "8");
   url.searchParams.set("access_token", token);
 
   const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
   const json = (await response.json()) as {
     data?: {
+      id?: string;
       page_name?: string;
       ad_snapshot_url?: string;
       ad_creative_bodies?: string[];
@@ -44,19 +78,19 @@ export async function metaLibraryAds(query: string): Promise<{ ads: CompetitorAd
     return { ads: [], warning: message };
   }
 
-  const ads: CompetitorAd[] = [];
-  for (const row of json.data ?? []) {
-    if (!row.ad_snapshot_url) continue;
-    const title = row.ad_creative_link_titles?.[0] || row.page_name || "Meta ad";
-    ads.push({
-      title,
-      url: row.ad_snapshot_url,
-      imageUrl: null,
-      snippet: row.ad_creative_bodies?.[0]?.slice(0, 280) || `${row.page_name ?? "A page"} is running this ad on Meta.`,
-      platform: "Meta",
-    });
-    if (ads.length >= 4) break;
-  }
+  const rows = (json.data ?? []).filter((row) => row.id && row.ad_snapshot_url).slice(0, 6);
+  const images = await Promise.all(rows.map((row) => snapshotImage(row.ad_snapshot_url as string)));
+  const ads: CompetitorAd[] = rows.map((row, index) => ({
+    title: row.page_name || row.ad_creative_link_titles?.[0] || "Meta ad",
+    url: `https://www.facebook.com/ads/library/?id=${row.id}`,
+    imageUrl: images[index],
+    snippet: [row.ad_creative_link_titles?.[0], row.ad_creative_bodies?.[0]]
+      .filter(Boolean)
+      .join(". ")
+      .replace(/\s+/g, " ")
+      .slice(0, 280) || `${row.page_name ?? "A page"} is running this ad on Meta.`,
+    platform: "Meta",
+  }));
   return { ads, warning: null };
 }
 

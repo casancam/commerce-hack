@@ -58,34 +58,49 @@ export function ImportScreen({ shop }: { shop: string }) {
   }, [router, summary]);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center px-6 py-16">
-      <img src="/haggly.png" alt="" className="h-16 w-16 object-contain" />
-      <p className="kicker mt-6">Import</p>
-      <h1 className="mt-2 text-3xl font-semibold tracking-tight">{summary?.shopName ?? shop}</h1>
-      <ol className="mt-6 space-y-2">
-        {STEPS.map((label, index) => {
-          const done = step > index;
-          return (
-            <li key={label} className={`text-sm ${done ? "text-foreground" : "text-muted"}`}>
-              {done ? "✓" : "·"} {label}
-            </li>
-          );
-        })}
-      </ol>
-      {summary ? (
-        <p className="mt-6 text-sm text-muted">
-          {summary.products} products · {summary.stock} in stock
-          {summary.sales === "loaded" ? ` · ${summary.sold} sold in 30 days` : ""}. Opening the studio.
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-accent px-6 py-16">
+      <div className="dotgrid absolute inset-0" aria-hidden="true" />
+      <div className="relative w-full max-w-xl">
+        <img src="/haggly.png" alt="" className="brief-logo h-28 w-28 object-contain" />
+        <p className="chip mt-6">
+          <span className="blink h-2 w-2 rounded-full bg-hot" /> Importing
         </p>
-      ) : null}
-      {error ? (
-        <div className="mt-6 space-y-3">
-          <p className="text-sm text-bad">{error}</p>
-          <a href="/api/shopify/disconnect" className="studio-btn studio-btn-secondary">
-            Connect again
-          </a>
-        </div>
-      ) : null}
+        <h1 className="display mt-4 text-[clamp(2.5rem,7vw,4.5rem)] break-words">{summary?.shopName ?? shop}</h1>
+        <ol className="panel mt-8 divide-y-2 divide-ink overflow-hidden">
+          {STEPS.map((label, index) => {
+            const done = step > index;
+            return (
+              <li
+                key={label}
+                className={`flex items-center gap-4 px-5 py-4 text-[15px] font-semibold ${done ? "bg-card" : "bg-card/60 text-muted"}`}
+              >
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 border-ink font-mono text-xs ${
+                    done ? "bg-ink text-accent" : "bg-transparent"
+                  }`}
+                >
+                  {done ? "✓" : `0${index + 1}`}
+                </span>
+                {label}
+              </li>
+            );
+          })}
+        </ol>
+        {summary ? (
+          <p className="serif mt-6 text-2xl">
+            {summary.products} products · {summary.stock} in stock
+            {summary.sales === "loaded" ? ` · ${summary.sold} sold in 30 days` : ""}. Opening the studio.
+          </p>
+        ) : null}
+        {error ? (
+          <div className="mt-6 space-y-4">
+            <p className="panel bg-hot px-5 py-4 text-[15px] font-medium">{error}</p>
+            <a href="/api/shopify/disconnect" className="studio-btn studio-btn-primary">
+              Connect again
+            </a>
+          </div>
+        ) : null}
+      </div>
     </main>
   );
 }

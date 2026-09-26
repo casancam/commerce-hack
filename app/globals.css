@@ -60,6 +60,7 @@ body::after {
   color: var(--ink);
 }
 
+@layer components {
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
@@ -241,6 +242,7 @@ body::after {
 .dotgrid {
   background-image: radial-gradient(rgba(12, 12, 12, 0.18) 1px, transparent 1px);
   background-size: 18px 18px;
+}
 }
 
 @keyframes haggly-float {

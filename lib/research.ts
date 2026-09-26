@@ -1,3 +1,4 @@
+import { garmentFromPhoto, grokConfigured, rankCompetitorAds } from "@/lib/grok";
 import { metaLibraryAds } from "@/lib/meta";
 import { extractGbpCents, plausibleCompetitorCents } from "@/lib/pricing";
 import { brandNames, publicCompetitorAds } from "@/lib/public-ads";
@@ -34,13 +35,14 @@ async function ogImage(pageUrl: string) {
   }
 }
 
-export async function researchOpportunity(title: string) {
+export async function researchOpportunity(title: string, imageUrl?: string) {
   if (!tavilyConfigured()) {
     return {
       links: [] as ResearchLink[],
       hits: [] as ResearchHit[],
       competitorAd: null as CompetitorAd | null,
       competitorAds: [] as CompetitorAd[],
+      angles: [] as string[],
       warning: "Set TAVILY_API_KEY to look up competitor prices and ads.",
     };
   }
@@ -81,14 +83,17 @@ export async function researchOpportunity(title: string) {
   const priced = hits.filter((hit) => hit.kind === "price");
   const names = brandNames(priced.map((hit) => hit.title));
   const pageUrls = priced.map((hit) => hit.url);
-  const brands = names.length > 0 ? names : [title];
-  const serp = await serpApiCompetitorAds(brands, pageUrls);
-  if (serp.warning) problems.push(serp.warning);
-  const meta = await metaLibraryAds(names[0] || title);
-  if (meta.warning) console.error(meta.warning);
-  const direct =
-    serp.ads.length >= 2 ? [] : await publicCompetitorAds(brands, pageUrls);
-  const competitorAds = dedupeAds([...serp.ads, ...meta.ads, ...direct]);
+  let garment = title;
+  if (imageUrl && grokConfigured()) {
+    try {
+      garment = (await garmentFromPhoto(imageUrl, title)).garment || title;
+    } catch (error) {
+      problems.push(error instanceof Error ? error.message : "Grok could not read the product photo");
+    }
+  }
+  const found = await findCompetitorAds({ garment, productImageUrl: imageUrl, pageUrls, brands: names.length > 0 ? names : [title] });
+  problems.push(...found.problems);
+  const { competitorAds, angles } = found;
   if (!serpApiConfigured() && competitorAds.every((ad) => !ad.imageUrl)) {
     problems.push("Set SERPAPI_API_KEY to load competitor creatives from Google Ads Transparency.");
   }
@@ -97,7 +102,7 @@ export async function researchOpportunity(title: string) {
     seen.add(ad.url);
     hits.push({ title: ad.title, url: ad.url, content: ad.snippet, kind: "ad", imageUrl: ad.imageUrl });
     links.push({
-      query: "Google Ads Transparency",
+      query: ad.platform === "Meta" ? "Meta Ad Library" : "Google Ads Transparency",
       title: ad.title,
       url: ad.url,
       kind: "ad",
@@ -106,11 +111,54 @@ export async function researchOpportunity(title: string) {
     });
   }
 
-  const competitorAd = competitorAds[0] ?? (await bestCompetitorAd(hits, looseImages));
-  return { links, hits, competitorAd, competitorAds, warning: problems[0] ?? null };
+  const competitorAd = competitorAds[0] ?? (found.ranked ? null : await bestCompetitorAd(hits, looseImages));
+  return { links, hits, competitorAd, competitorAds, angles, warning: problems[0] ?? null };
 }
 
-function dedupeAds(ads: CompetitorAd[]) {
+export async function findCompetitorAds({
+  garment,
+  productImageUrl,
+  pageUrls = [],
+  brands = [],
+}: {
+  garment: string;
+  productImageUrl?: string;
+  pageUrls?: string[];
+  brands?: string[];
+}) {
+  const problems: string[] = [];
+  const [serp, meta] = await Promise.all([serpApiCompetitorAds(garment, pageUrls), metaLibraryAds(garment)]);
+  if (serp.warning) problems.push(serp.warning);
+  if (meta.warning) console.error(meta.warning);
+  const direct = serp.ads.length + meta.ads.length >= 3 ? [] : await publicCompetitorAds(brands, pageUrls);
+  const candidates = dedupeAds([...meta.ads, ...serp.ads, ...direct], 10);
+
+  if (!productImageUrl || !grokConfigured() || candidates.length === 0) {
+    return { competitorAds: candidates.slice(0, 4), angles: [] as string[], ranked: false, problems };
+  }
+
+  try {
+    const { verdicts, angles } = await rankCompetitorAds(
+      productImageUrl,
+      garment,
+      candidates.map((ad) => ({ title: ad.title, imageUrl: ad.imageUrl, text: ad.snippet })),
+    );
+    const competitorAds = verdicts
+      .filter((verdict) => verdict.match)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map((verdict) => {
+        const ad = candidates[verdict.index];
+        return { ...ad, snippet: verdict.hook ? `${ad.title}: ${verdict.hook}` : ad.snippet };
+      });
+    return { competitorAds, angles: competitorAds.length > 0 ? angles : [], ranked: true, problems };
+  } catch (error) {
+    problems.push(error instanceof Error ? error.message : "Grok could not rank the competitor ads");
+    return { competitorAds: candidates.slice(0, 4), angles: [] as string[], ranked: false, problems };
+  }
+}
+
+function dedupeAds(ads: CompetitorAd[], limit: number) {
   const seen = new Set<string>();
   const unique: CompetitorAd[] = [];
   for (const ad of ads) {
@@ -118,7 +166,7 @@ function dedupeAds(ads: CompetitorAd[]) {
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push(ad);
-    if (unique.length >= 4) break;
+    if (unique.length >= limit) break;
   }
   return unique;
 }

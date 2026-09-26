@@ -97,14 +97,27 @@ export function clearedSessionCookie() {
   return { name: SESSION_COOKIE, value: "", options: { ...cookieBase, maxAge: 0 } };
 }
 
+function requestHost(headerList: Headers) {
+  const raw = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "";
+  return raw.split(",")[0]?.trim() ?? "";
+}
+
+function isLocalHost(host: string) {
+  const name = host.replace(/^\[|\]$/g, "").split(":")[0] ?? "";
+  return name === "localhost" || name === "127.0.0.1" || name === "::1";
+}
+
 export async function currentOrigin() {
+  const headerList = await headers();
+  const host = requestHost(headerList);
+  if (host && isLocalHost(host)) {
+    const proto = headerList.get("x-forwarded-proto")?.split(",")[0]?.trim() || "http";
+    return `${proto}://${host}`;
+  }
   const configured = process.env.APP_URL?.replace(/\/$/, "");
   if (configured) return configured;
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
   if (!host) throw new Error("APP_URL is not set");
-  const local = host.startsWith("localhost") || host.startsWith("127.0.0.1");
-  const proto = headerList.get("x-forwarded-proto") ?? (local ? "http" : "https");
+  const proto = headerList.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
   return `${proto}://${host}`;
 }
 
