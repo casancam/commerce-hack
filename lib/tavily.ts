@@ -12,6 +12,7 @@ export async function tavilySearch(query: string, maxResults = 5, withImages = f
 
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
+    signal: AbortSignal.timeout(8_000),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
@@ -37,7 +38,10 @@ export async function tavilySearch(query: string, maxResults = 5, withImages = f
   const images = (json.images ?? []).filter((url) => url.startsWith("http"));
   const supabase = getSupabase();
   if (supabase) {
-    await supabase.from("research").insert({ query, payload: { results, images } });
+    void supabase
+      .from("research")
+      .insert({ query, payload: { results, images } })
+      .then(() => undefined, () => undefined);
   }
   return { results, images };
 }

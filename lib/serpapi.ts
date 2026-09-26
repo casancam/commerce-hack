@@ -1,3 +1,4 @@
+import { sameProduct } from "@/lib/product-match";
 import type { CompetitorAd } from "@/lib/types";
 
 const SKIP_HOST =
@@ -44,7 +45,7 @@ async function serp<T>(params: Record<string, string>) {
   const url = new URL("https://serpapi.com/search.json");
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
   url.searchParams.set("api_key", key);
-  const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(6_000) });
   const json = (await response.json()) as T & { error?: string };
   if (!response.ok || json.error) throw new Error(json.error || "SerpApi request failed");
   return json;
@@ -121,8 +122,7 @@ function stillOn(lastShown?: number) {
 }
 
 function mentions(ad: CompetitorAd, garment: string) {
-  const noun = garment.toLowerCase().split(/\s+/).filter(Boolean).pop() ?? "";
-  return noun.length > 2 && ad.snippet.toLowerCase().includes(noun);
+  return sameProduct(`${ad.snippet} ${ad.title}`, garment);
 }
 
 export async function serpApiCompetitorAds(garment: string, pageUrls: string[] = []) {
@@ -133,9 +133,7 @@ export async function serpApiCompetitorAds(garment: string, pageUrls: string[] =
     const found = (await Promise.all(domains.map(imageAds))).flat();
     const seen = new Set<string>();
     const unique = found.filter((ad) => ad.imageUrl && !seen.has(ad.imageUrl) && seen.add(ad.imageUrl));
-    const named = unique.filter((ad) => mentions(ad, garment));
-    const ads = named.length >= 3 ? named : [...named, ...unique.filter((ad) => !mentions(ad, garment))];
-    return { ads: ads.slice(0, 8), warning: null as string | null };
+    return { ads: unique.filter((ad) => mentions(ad, garment)).slice(0, 8), warning: null as string | null };
   } catch (error) {
     return { ads: [] as CompetitorAd[], warning: error instanceof Error ? error.message : "SerpApi request failed" };
   }

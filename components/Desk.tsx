@@ -5,6 +5,7 @@ import type { BriefUpdate } from "@/lib/brief";
 import { PlatformLogo } from "@/components/PlatformLogo";
 import { RuleFields } from "@/components/RuleFields";
 import { gbp, marginPct } from "@/lib/format";
+import { sameProduct } from "@/lib/product-match";
 import type { AdVariant, Brief, CampaignDraft, Product, ProductRule } from "@/lib/types";
 
 export function Desk({
@@ -53,9 +54,10 @@ export function Desk({
   const previewImage = selected?.imageUrl || stockUrl;
   const campaignMargin = marginPct(rule.campaignPriceCents, chosen.costCents);
   const profitCents = rule.campaignPriceCents - chosen.costCents;
-  const competitorAds = (brief.competitorAds?.length ? brief.competitorAds : brief.competitorAd ? [brief.competitorAd] : []).filter(
+  const foundAds = (brief.competitorAds?.length ? brief.competitorAds : brief.competitorAd ? [brief.competitorAd] : []).filter(
     (ad) => ad.imageUrl || ad.url,
   );
+  const competitorAds = foundAds.filter((ad) => sameProduct(`${ad.title} ${ad.snippet} ${ad.hook ?? ""}`, chosen.title));
   const priceLinks = brief.research.filter((link) => link.kind !== "ad" && usefulLink(link));
 
   async function runBrief() {
@@ -438,7 +440,9 @@ export function Desk({
         ) : (
           <p className="stripes mt-6 rounded-[1.25rem] border-2 border-ink">
             <span className="m-6 inline-block rounded-lg border-2 border-ink bg-card px-4 py-3 text-[15px] font-medium">
-              Run a brief to pull live creatives from Google and Meta.
+              {foundAds.length > 0
+                ? `None of the live ads were for a ${chosen.title}.`
+                : "Run a brief to pull live creatives from Google and Meta."}
             </span>
           </p>
         )}

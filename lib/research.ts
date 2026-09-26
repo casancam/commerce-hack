@@ -1,7 +1,8 @@
 import { garmentFromPhoto, grokConfigured, rankCompetitorAds } from "@/lib/grok";
+import { sameProduct } from "@/lib/product-match";
 import { metaLibraryAds } from "@/lib/meta";
 import { extractGbpCents, plausibleCompetitorCents } from "@/lib/pricing";
-import { brandNames, publicCompetitorAds } from "@/lib/public-ads";
+import { publicCompetitorAds } from "@/lib/public-ads";
 import { serpApiCompetitorAds, serpApiConfigured } from "@/lib/serpapi";
 import { tavilyConfigured, tavilySearch, type TavilyHit } from "@/lib/tavily";
 import type { CompetitorAd, ResearchLink } from "@/lib/types";
@@ -69,54 +70,49 @@ export async function researchOpportunity(
   }
 
   onProgress?.("ads");
-  const queries: { kind: "price" | "ad"; query: string }[] = [
-    { kind: "price", query: `${garment} buy price GBP UK` },
-  ];
-
-  for (const item of queries) {
+  const priceSearch = (async () => {
     try {
-      const search = await tavilySearch(item.query, 4, item.kind === "ad");
+      const search = await tavilySearch(`${garment} buy price GBP UK`, 4, false);
       looseImages.push(...search.images);
       for (const hit of search.results) {
         if (seen.has(hit.url)) continue;
         if (/coinmarketcap|coingecko|binance|tokenised|crypto|forex/i.test(`${hit.title} ${hit.url}`)) continue;
         seen.add(hit.url);
-        const imageUrl = item.kind === "ad" ? (search.images[hits.filter((row) => row.kind === "ad").length] ?? null) : null;
-        hits.push({ ...hit, kind: item.kind, imageUrl });
+        hits.push({ ...hit, kind: "price", imageUrl: null });
         links.push({
-          query: item.query,
+          query: `${garment} buy price GBP UK`,
           title: hit.title,
           url: hit.url,
-          kind: item.kind,
-          imageUrl,
+          kind: "price",
+          imageUrl: null,
           snippet: hit.content.replace(/\s+/g, " ").slice(0, 280),
         });
       }
     } catch (error) {
       problems.push(error instanceof Error ? error.message : "Tavily search failed");
     }
-  }
+  })();
 
-  const priced = hits.filter((hit) => hit.kind === "price");
-  const names = brandNames(priced.map((hit) => hit.title));
-  const pageUrls = priced.map((hit) => hit.url);
-  const found = await within(
-    findCompetitorAds({
-      garment,
-      productImageUrl: imageUrl,
-      pageUrls,
-      brands: names.length > 0 ? names : [title],
-      onProgress,
-      rank: !options?.quick,
-    }),
-    options?.quick ? 18_000 : 45_000,
-    {
-      competitorAds: [] as CompetitorAd[],
-      angles: [] as string[],
-      ranked: false,
-      problems: [] as string[],
-    },
-  );
+  const adSearch = findCompetitorAds({
+    garment,
+    productImageUrl: imageUrl,
+    pageUrls: [],
+    brands: [title],
+    onProgress,
+    rank: !options?.quick,
+    allowPublic: !options?.quick,
+  });
+
+  const emptyAds = {
+    competitorAds: [] as CompetitorAd[],
+    angles: [] as string[],
+    ranked: false,
+    problems: [] as string[],
+  };
+  const [, found] = await Promise.all([
+    within(priceSearch, options?.quick ? 8_000 : 20_000, undefined),
+    within(adSearch, options?.quick ? 15_000 : 45_000, emptyAds),
+  ]);
   problems.push(...found.problems);
   const { competitorAds, angles } = found;
   if (!serpApiConfigured() && competitorAds.every((ad) => !ad.imageUrl)) {
@@ -136,7 +132,8 @@ export async function researchOpportunity(
     });
   }
 
-  const competitorAd = competitorAds[0] ?? (found.ranked ? null : await bestCompetitorAd(hits, looseImages));
+  const competitorAd =
+    competitorAds[0] ?? (options?.quick || found.ranked ? null : await bestCompetitorAd(hits, looseImages));
   return { links, hits, competitorAd, competitorAds, angles, warning: problems[0] ?? null };
 }
 
@@ -147,6 +144,7 @@ export async function findCompetitorAds({
   brands = [],
   onProgress,
   rank = true,
+  allowPublic = true,
 }: {
   garment: string;
   productImageUrl?: string;
@@ -154,13 +152,21 @@ export async function findCompetitorAds({
   brands?: string[];
   onProgress?: (stage: "rank") => void;
   rank?: boolean;
+  allowPublic?: boolean;
 }) {
   const problems: string[] = [];
   const [serp, meta] = await Promise.all([serpApiCompetitorAds(garment, pageUrls), metaLibraryAds(garment)]);
   if (serp.warning) problems.push(serp.warning);
   if (meta.warning) console.error(meta.warning);
-  const direct = serp.ads.length + meta.ads.length >= 3 ? [] : await publicCompetitorAds(brands, pageUrls);
-  const candidates = dedupeAds([...meta.ads, ...serp.ads, ...direct], 12);
+  const direct =
+    allowPublic && serp.ads.length + meta.ads.length < 3 ? await publicCompetitorAds(brands, pageUrls) : [];
+  const relevant = [...meta.ads, ...serp.ads, ...direct].filter((ad) =>
+    sameProduct(`${ad.title} ${ad.snippet} ${ad.hook ?? ""}`, garment),
+  );
+  if (relevant.length === 0 && serp.ads.length + meta.ads.length + direct.length > 0) {
+    problems.push(`Found live ads, but none were for a ${garment}.`);
+  }
+  const candidates = dedupeAds(relevant, 12);
 
   if (!rank || !productImageUrl || !grokConfigured() || candidates.length === 0) {
     return { competitorAds: candidates.slice(0, 8), angles: [] as string[], ranked: false, problems };
