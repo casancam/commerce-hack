@@ -26,6 +26,7 @@ async function slackApi(method: string, body: Record<string, unknown>) {
   if (!auth) return { ok: false, error: "Slack is not connected." };
   const response = await fetch(`https://slack.com/api/${method}`, {
     method: "POST",
+    signal: AbortSignal.timeout(8000),
     headers: {
       Authorization: `Bearer ${auth}`,
       "Content-Type": "application/json; charset=utf-8",

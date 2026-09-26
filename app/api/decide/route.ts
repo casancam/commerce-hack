@@ -1,9 +1,8 @@
 import { runBrief } from "@/lib/brief";
-import { deliverProposal } from "@/lib/deliver";
 import { buildPreview } from "@/lib/decide";
 import { loadCatalog } from "@/lib/live-catalog";
 
-export const maxDuration = 120;
+export const maxDuration = 45;
 export const dynamic = "force-dynamic";
 
 export async function POST() {
@@ -19,8 +18,7 @@ export async function POST() {
       };
       try {
         const { brief, warning } = await runBrief((update) => send(update));
-        const delivered = await deliverProposal(brief, warning);
-        send({ stage: "done", brief, warning, ...delivered });
+        send({ stage: "done", brief, warning });
       } catch (error) {
         send({
           stage: "error",

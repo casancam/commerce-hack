@@ -64,16 +64,21 @@ export function Desk({
     setPending("brief");
     setProgress({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: 4 });
     setNotice(null);
+    let finished = false;
+    let watchdog = 0;
     try {
       const response = await fetch("/api/decide", { method: "POST" });
       if (!response.ok || !response.body) {
         setNotice("Could not run today's brief.");
         return;
       }
+      watchdog = window.setTimeout(() => {
+        setProgress(null);
+        setPending(null);
+      }, 45_000);
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let finished = false;
       const applyLine = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed) return;
@@ -118,8 +123,22 @@ export function Desk({
     } catch {
       setNotice("Could not run today's brief.");
     } finally {
+      window.clearTimeout(watchdog);
       setProgress(null);
       setPending(null);
+    }
+    if (finished) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          void fetch("/api/deliver", { method: "POST" })
+            .then((response) => response.json())
+            .then((body) => {
+              const line = deliveryLine(body);
+              if (line) setNotice((current) => [current, line].filter(Boolean).join(" "));
+            })
+            .catch(() => undefined);
+        });
+      });
     }
   }
 
