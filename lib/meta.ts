@@ -153,7 +153,7 @@ function reachLabel(row: MetaArchiveAd) {
   const parts: string[] = [];
   if (row.eu_total_reach && row.eu_total_reach > 0) parts.push(`EU reach ${compactCount(row.eu_total_reach)}`);
   const locations = row.total_reach_by_location;
-  const rows = Array.isArray(locations)
+  const rows: { key?: string; value?: number; location?: string; reach?: number }[] = Array.isArray(locations)
     ? locations
     : locations
       ? Object.entries(locations).map(([key, value]) => ({ key, value: Number(value) }))

@@ -75,7 +75,8 @@ export function Desk({
       const applyLine = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed) return;
-        const event = JSON.parse(trimmed) as BriefUpdate & {
+        const event = JSON.parse(trimmed) as Omit<BriefUpdate, "stage"> & {
+          stage?: BriefUpdate["stage"] | "done" | "error";
           brief?: Brief;
           warning?: string | null;
           telegram?: { sent?: boolean; reason?: string };
