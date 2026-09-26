@@ -45,7 +45,7 @@ async function serp<T>(params: Record<string, string>) {
   const url = new URL("https://serpapi.com/search.json");
   for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
   url.searchParams.set("api_key", key);
-  const response = await fetch(url, { signal: AbortSignal.timeout(6_000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(12_000) });
   const json = (await response.json()) as T & { error?: string };
   if (!response.ok || json.error) throw new Error(json.error || "SerpApi request failed");
   return json;
@@ -129,7 +129,8 @@ export async function serpApiCompetitorAds(garment: string, pageUrls: string[] =
   if (!serpApiConfigured()) return { ads: [] as CompetitorAd[], warning: null as string | null };
 
   try {
-    const domains = [...new Set([...(await sellerDomains(garment)), ...domainsFrom(pageUrls)])].slice(0, 3);
+    const fromSearch = await sellerDomains(garment).catch(() => [] as string[]);
+    const domains = [...new Set([...fromSearch, ...domainsFrom(pageUrls)])].slice(0, 3);
     const found = (await Promise.all(domains.map(imageAds))).flat();
     const seen = new Set<string>();
     const unique = found.filter((ad) => ad.imageUrl && !seen.has(ad.imageUrl) && seen.add(ad.imageUrl));

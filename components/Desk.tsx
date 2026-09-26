@@ -62,7 +62,7 @@ export function Desk({
 
   async function runBrief() {
     setPending("brief");
-    setProgress({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: 3 });
+    setProgress({ stage: "stock", detail: "Choosing which product to promote", step: 1, total: 4 });
     setNotice(null);
     try {
       const response = await fetch("/api/decide", { method: "POST" });
@@ -577,6 +577,7 @@ const LOADING_STEPS: { id: BriefUpdate["stage"]; label: string }[] = [
   { id: "stock", label: "Stock" },
   { id: "ads", label: "Search" },
   { id: "copy", label: "Copy" },
+  { id: "image", label: "Stills" },
 ];
 
 function BriefLoading({ progress }: { progress: BriefUpdate }) {

@@ -103,16 +103,7 @@ export async function researchOpportunity(
     allowPublic: !options?.quick,
   });
 
-  const emptyAds = {
-    competitorAds: [] as CompetitorAd[],
-    angles: [] as string[],
-    ranked: false,
-    problems: [] as string[],
-  };
-  const [, found] = await Promise.all([
-    within(priceSearch, options?.quick ? 8_000 : 20_000, undefined),
-    within(adSearch, options?.quick ? 15_000 : 45_000, emptyAds),
-  ]);
+  const [, found] = await Promise.all([priceSearch, adSearch]);
   problems.push(...found.problems);
   const { competitorAds, angles } = found;
   if (!serpApiConfigured() && competitorAds.every((ad) => !ad.imageUrl)) {
@@ -192,14 +183,6 @@ export async function findCompetitorAds({
     problems.push(error instanceof Error ? error.message : "Grok could not rank the competitor ads");
     return { competitorAds: candidates.slice(0, 8), angles: [] as string[], ranked: false, problems };
   }
-}
-
-function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
-  });
-  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
 function dedupeAds(ads: CompetitorAd[], limit: number) {

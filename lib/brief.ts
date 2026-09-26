@@ -1,5 +1,5 @@
 import { applyResearch, buildPreview, carryBudgets, gbpFacts, stageCampaigns, suggestionMessage } from "@/lib/decide";
-import { FAST_MODEL, grokChat, grokConfigured, parseGrokJson } from "@/lib/grok";
+import { FAST_MODEL, grokAdImage, grokChat, grokConfigured, parseGrokJson } from "@/lib/grok";
 import { loadCatalog, type Catalog } from "@/lib/live-catalog";
 import { suggestCampaignPrice } from "@/lib/pricing";
 import { adEvidence, competitorNote, competitorPrices, researchOpportunity, type ResearchHit } from "@/lib/research";
@@ -162,17 +162,35 @@ async function creativeWithGrok(
   const primaryText = clip(parsed.primaryText, 280, brief.chosen.primaryText);
   const drafts = draftVariants(parsed, hits, brief.chosen.title);
   const stock = product ? stockReference(product) : brief.chosen.imageUrl;
-  const variants: AdVariant[] = drafts.map((draft, index) => ({
-    id: slug(draft.label, index),
-    label: draft.label,
-    imageUrl: stock,
-    why: draft.why,
-    sourceTitle: draft.sourceTitle,
-    sourceUrl: draft.sourceUrl,
-    prompt: draft.imagePrompt,
-  }));
-  const selected = variants[0];
-  const generatedImage = false;
+  onProgress?.({
+    stage: "image",
+    detail: "Editing both stills from the stock photo",
+    step: 4,
+    total: BRIEF_STEPS,
+  });
+  const imagesStarted = Date.now();
+  const variants: AdVariant[] = await Promise.all(
+    drafts.map(async (draft, index) => {
+      let imageUrl = stock;
+      try {
+        imageUrl = await grokAdImage(draft.imagePrompt, stock);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+      }
+      return {
+        id: slug(draft.label, index),
+        label: draft.label,
+        imageUrl,
+        why: draft.why,
+        sourceTitle: draft.sourceTitle,
+        sourceUrl: draft.sourceUrl,
+        prompt: draft.imagePrompt,
+      };
+    }),
+  );
+  const imagesMs = Date.now() - imagesStarted;
+  const selected = variants.find((variant) => variant.imageUrl !== stock) ?? variants[0];
+  const generatedImage = variants.some((variant) => variant.imageUrl !== stock);
 
   const chosenProduct: Product = product ?? {
     id: brief.chosen.id,
@@ -221,7 +239,7 @@ async function creativeWithGrok(
     ),
   } satisfies Brief,
     copyMs,
-    imagesMs: 0,
+    imagesMs,
   };
 }
 
@@ -234,7 +252,7 @@ export type BriefUpdate = {
   total: number;
 };
 
-const BRIEF_STEPS = 3;
+const BRIEF_STEPS = 4;
 
 export async function runBrief(onProgress?: (update: BriefUpdate) => void) {
   const totalStarted = Date.now();

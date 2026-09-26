@@ -73,7 +73,7 @@ export async function metaLibraryAds(query: string): Promise<{ ads: CompetitorAd
   url.searchParams.set("limit", "8");
   url.searchParams.set("access_token", token);
 
-  const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(25_000) });
   const json = (await response.json()) as {
     data?: MetaArchiveAd[];
     error?: { message?: string; error_subcode?: number; error_user_msg?: string };

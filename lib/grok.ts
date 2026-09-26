@@ -147,10 +147,15 @@ export async function rankCompetitorAds(productImageUrl: string, garment: string
 
 export const FAST_MODEL = "grok-4.20-0309-non-reasoning";
 
-export async function grokChat(system: string, user: string, model = process.env.GROK_MODEL || "grok-4.6") {
+export async function grokChat(
+  system: string,
+  user: string,
+  model = process.env.GROK_MODEL || "grok-4.6",
+  timeoutMs = 30_000,
+) {
   const response = await fetch(`${API}/chat/completions`, {
     method: "POST",
-    signal: AbortSignal.timeout(50_000),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey()}`,
@@ -245,12 +250,13 @@ export async function grokAdImage(prompt: string, referenceUrl?: string) {
 
   const response = await fetch(`${API}/images/edits`, {
     method: "POST",
+    signal: AbortSignal.timeout(30_000),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey()}`,
     },
     body: JSON.stringify({
-      model: "grok-imagine-image-2.0",
+      model: process.env.GROK_IMAGE_MODEL || "grok-imagine-image",
       prompt: `${IDENTITY_LOCK} ${prompt}`,
       aspect_ratio: "1:1",
       image,

@@ -12,7 +12,7 @@ export async function tavilySearch(query: string, maxResults = 5, withImages = f
 
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
-    signal: AbortSignal.timeout(8_000),
+    signal: AbortSignal.timeout(20_000),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
