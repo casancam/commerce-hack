@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "infra:check": "node scripts/infra-check.mjs",
+    "shopify:seed": "node scripts/shopify-seed.mjs",
     "telegram:chat": "node scripts/telegram-chat.mjs",
     "telegram:webhook": "node scripts/set-webhook.mjs"
   },
